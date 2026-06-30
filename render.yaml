@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: store-ai-server
+    runtime: docker
+    plan: free
+    envVars:
+      - key: DB_URL
+        value: jdbc:postgresql://db.yoatycotwtcodkmkapui.supabase.co:5432/postgres?stringtype=unspecified
+      - key: DB_USERNAME
+        value: postgres
+      - key: DB_PASSWORD
+        value: nbkrezIRh8vCEKRh
+      - key: JWT_SECRET
+        value: store-ai-jwt-secret-key-must-be-at-least-256-bits-long
+      - key: MINIO_ENDPOINT
+        value: http://localhost:9000
+      - key: MINIO_ACCESS_KEY
+        value: minioadmin
+      - key: MINIO_SECRET_KEY
+        value: minioadmin
+      - key: AI_PROVIDER
+        value: mock
