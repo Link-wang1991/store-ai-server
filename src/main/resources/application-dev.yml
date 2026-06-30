@@ -1,0 +1,9 @@
+spring:
+  flyway:
+    clean-disabled: true
+    outOfOrder: true
+
+logging:
+  level:
+    com.storeai: DEBUG
+    org.springframework.security: DEBUG

@@ -1,0 +1,68 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: store-ai-server
+  profiles:
+    active: dev
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://db.yoatycotwtcodkmkapui.supabase.co:5432/postgres?stringtype=unspecified}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:nbkrezIRh8vCEKRh}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.storeai.*.entity
+  global-config:
+    db-config:
+      id-type: assign_id
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+# JWT
+jwt:
+  secret: ${JWT_SECRET:store-ai-jwt-secret-key-must-be-at-least-256-bits-long}
+  expiration: 604800000  # 7 天 (毫秒)
+
+# MinIO
+minio:
+  endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+  access-key: ${MINIO_ACCESS_KEY:minioadmin}
+  secret-key: ${MINIO_SECRET_KEY:minioadmin}
+  bucket-knowledge: ${MINIO_BUCKET_KNOWLEDGE:store-knowledge}
+  bucket-meeting: ${MINIO_BUCKET_MEETING:store-meeting}
+
+# AI
+ai:
+  provider: ${AI_PROVIDER:mock}
+  deepseek:
+    api-key: ${DEEPSEEK_API_KEY:}
+    base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
+    model: ${DEEPSEEK_MODEL:deepseek-chat}
+  qwen:
+    api-key: ${DASHSCOPE_API_KEY:}
+    text-model: qwen-plus
+    vision-model: qwen-vl-plus
+    asr-api-url: https://dashscope.aliyuncs.com/api/v1/services/audio/asr/asynctask
+
+# SpringDoc
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
