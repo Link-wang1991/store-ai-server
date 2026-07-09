@@ -2,6 +2,7 @@ spring:
   flyway:
     clean-disabled: true
     outOfOrder: true
+    validate-on-migrate: false
 
 logging:
   level:

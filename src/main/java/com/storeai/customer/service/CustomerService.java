@@ -18,14 +18,10 @@ public class CustomerService {
     private final CustomerRepository customerRepo;
     private final CurrentUser cur;
 
-    /** 根据权限范围列出客户 */
+    /** 返回全店客户（会谈页面需按分配人拆分显示） */
     public List<Customer> listByScope() {
         var qw = new LambdaQueryWrapper<Customer>()
                 .eq(Customer::getStoreId, cur.storeId());
-        if (!cur.isAdmin()) {
-            // 普通员工只看自己负责的
-            qw.eq(Customer::getAssignedTo, cur.employeeId());
-        }
         qw.orderByDesc(Customer::getUpdatedAt);
         return customerRepo.selectList(qw);
     }

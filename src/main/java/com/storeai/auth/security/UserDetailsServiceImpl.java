@@ -22,13 +22,13 @@ public class UserDetailsServiceImpl implements UserDetailsService {
     @Override
     public UserDetailsImpl loadUserByUsername(String userId) throws UsernameNotFoundException {
         var user = userRepository.selectOne(
-            new LambdaQueryWrapper<User>().apply("id::text = {0}", userId));
+            new LambdaQueryWrapper<User>().apply("id = {0}", userId));
         if (user == null) {
             throw new UsernameNotFoundException("用户不存在: " + userId);
         }
 
         var employee = employeeRepository.selectOne(
-            new LambdaQueryWrapper<Employee>().apply("user_id::text = {0}", user.getId()));
+            new LambdaQueryWrapper<Employee>().apply("user_id = {0}", user.getId()));
         if (employee == null) {
             throw new UsernameNotFoundException("未找到关联的员工信息");
         }

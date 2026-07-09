@@ -5,11 +5,11 @@ services:
     plan: free
     envVars:
       - key: DB_URL
-        value: jdbc:postgresql://db.yoatycotwtcodkmkapui.supabase.co:5432/postgres?stringtype=unspecified
+        value: jdbc:mysql://rm-wz985705s2po670h4ro.mysql.rds.aliyuncs.com:3306/store-ai?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
       - key: DB_USERNAME
-        value: postgres
+        value: store_ai
       - key: DB_PASSWORD
-        value: nbkrezIRh8vCEKRh
+        value: Gaoxiaoli2010
       - key: JWT_SECRET
         value: store-ai-jwt-secret-key-must-be-at-least-256-bits-long
       - key: MINIO_ENDPOINT

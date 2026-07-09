@@ -1,9 +1,11 @@
 -- ============================================================
--- 门店 AI 经营助手 · PostgreSQL 建表脚本（连 Supabase）
+-- 门店 AI 经营助手 · MySQL 建表脚本
+-- 由 PostgreSQL 版本迁移而来：
+--   TIMESTAMPTZ      -> DATETIME
+--   JSONB            -> JSON
+--   TEXT[]           -> JSON（实体层以 String 读写 JSON 数组串）
+--   移除 pg_trgm 扩展与 GIN 索引（知识检索走应用层 bigram，无 DB 依赖）
 -- ============================================================
-
--- 启用全文模糊检索扩展
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- ============================================================
 -- 1. 门店
@@ -12,8 +14,8 @@ CREATE TABLE IF NOT EXISTS stores (
     id VARCHAR(64) PRIMARY KEY,
     name VARCHAR(200) NOT NULL,
     owner_id VARCHAR(64),
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
@@ -24,7 +26,7 @@ CREATE TABLE IF NOT EXISTS users (
     email VARCHAR(255) NOT NULL UNIQUE,
     name VARCHAR(100),
     password_hash VARCHAR(255) NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_users_email ON users(email);
 
@@ -36,8 +38,8 @@ CREATE TABLE IF NOT EXISTS roles (
     store_id VARCHAR(64) REFERENCES stores(id) ON DELETE CASCADE,
     name VARCHAR(50) NOT NULL,
     display_name VARCHAR(100),
-    permissions JSONB DEFAULT '{}',
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    permissions JSON DEFAULT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_roles_store ON roles(store_id);
 
@@ -53,8 +55,8 @@ CREATE TABLE IF NOT EXISTS employees (
     status VARCHAR(20) DEFAULT 'active',
     phone VARCHAR(30),
     data_scope VARCHAR(20) DEFAULT 'self',
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_employees_store ON employees(store_id);
 CREATE INDEX idx_employees_user ON employees(user_id);
@@ -69,13 +71,13 @@ CREATE TABLE IF NOT EXISTS knowledge_documents (
     category VARCHAR(100),
     status VARCHAR(20) DEFAULT 'active',
     uploaded_by VARCHAR(64) REFERENCES employees(id) ON DELETE SET NULL,
-    visible_roles TEXT[] DEFAULT '{}',
+    visible_roles JSON DEFAULT NULL,
     tags TEXT,
     remark TEXT,
     file_url TEXT,
     file_type VARCHAR(20),
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_kd_store ON knowledge_documents(store_id);
 
@@ -88,11 +90,10 @@ CREATE TABLE IF NOT EXISTS knowledge_chunks (
     document_id VARCHAR(64) NOT NULL REFERENCES knowledge_documents(id) ON DELETE CASCADE,
     content TEXT NOT NULL,
     seq INT DEFAULT 0,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_kc_store ON knowledge_chunks(store_id);
 CREATE INDEX idx_kc_document ON knowledge_chunks(document_id);
-CREATE INDEX idx_kc_content_trgm ON knowledge_chunks USING GIN (content gin_trgm_ops);
 
 -- ============================================================
 -- 7. 对话会话
@@ -104,8 +105,8 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
     role VARCHAR(50),
     title VARCHAR(200),
     customer_id VARCHAR(64),
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_cs_store ON chat_sessions(store_id);
 CREATE INDEX idx_cs_employee ON chat_sessions(employee_id);
@@ -122,9 +123,9 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     content TEXT NOT NULL,
     answer_type VARCHAR(30),
     risk_level VARCHAR(10),
-    retrieved_chunks JSONB,
+    retrieved_chunks JSON,
     customer_id VARCHAR(64),
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_cm_session ON chat_messages(session_id);
 CREATE INDEX idx_cm_store ON chat_messages(store_id);
@@ -141,8 +142,8 @@ CREATE TABLE IF NOT EXISTS pending_questions (
     status VARCHAR(20) DEFAULT 'pending',
     assigned_to VARCHAR(64) REFERENCES employees(id) ON DELETE SET NULL,
     reply TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
@@ -154,7 +155,7 @@ CREATE TABLE IF NOT EXISTS knowledge_gaps (
     employee_id VARCHAR(64) REFERENCES employees(id) ON DELETE SET NULL,
     question TEXT NOT NULL,
     status VARCHAR(20) DEFAULT 'pending',
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
@@ -171,8 +172,8 @@ CREATE TABLE IF NOT EXISTS risk_logs (
     status VARCHAR(20) DEFAULT 'open',
     handled_by VARCHAR(64) REFERENCES employees(id) ON DELETE SET NULL,
     resolution TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
@@ -187,10 +188,10 @@ CREATE TABLE IF NOT EXISTS tasks (
     status VARCHAR(20) DEFAULT 'todo',
     assigned_to VARCHAR(64) REFERENCES employees(id) ON DELETE SET NULL,
     created_by VARCHAR(64) REFERENCES employees(id) ON DELETE SET NULL,
-    due_at TIMESTAMPTZ,
+    due_at DATETIME,
     feedback TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_tasks_store ON tasks(store_id);
 
@@ -202,7 +203,7 @@ CREATE TABLE IF NOT EXISTS banned_words (
     store_id VARCHAR(64) NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
     word VARCHAR(200) NOT NULL,
     created_by VARCHAR(64) REFERENCES employees(id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(store_id, word)
 );
 
@@ -216,7 +217,7 @@ CREATE TABLE IF NOT EXISTS standard_answers (
     answer TEXT NOT NULL,
     source_message_id VARCHAR(64),
     created_by VARCHAR(64) REFERENCES employees(id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
@@ -233,12 +234,12 @@ CREATE TABLE IF NOT EXISTS customers (
     stage VARCHAR(50),
     pool VARCHAR(50),
     tags TEXT,
-    portrait JSONB,
+    portrait JSON,
     total_visits INT DEFAULT 0,
-    last_visit_at TIMESTAMPTZ,
-    next_follow_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    last_visit_at DATETIME,
+    next_follow_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_customers_store ON customers(store_id);
 CREATE INDEX idx_customers_assigned ON customers(assigned_to);
@@ -253,7 +254,7 @@ CREATE TABLE IF NOT EXISTS interactions (
     employee_id VARCHAR(64) REFERENCES employees(id) ON DELETE SET NULL,
     type VARCHAR(50),
     content TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
@@ -265,12 +266,12 @@ CREATE TABLE IF NOT EXISTS memory_items (
     customer_id VARCHAR(64) REFERENCES customers(id) ON DELETE CASCADE,
     employee_id VARCHAR(64) REFERENCES employees(id) ON DELETE SET NULL,
     scope VARCHAR(20) DEFAULT 'customer',
-    key VARCHAR(200),
+    `key` VARCHAR(200),
     value TEXT,
     confidence VARCHAR(20),
     source_type VARCHAR(50),
     source_id VARCHAR(64),
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
@@ -284,10 +285,10 @@ CREATE TABLE IF NOT EXISTS opportunities (
     type VARCHAR(50),
     status VARCHAR(20) DEFAULT 'open',
     priority INT DEFAULT 0,
-    due_at TIMESTAMPTZ,
-    completed_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    due_at DATETIME,
+    completed_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
@@ -300,11 +301,11 @@ CREATE TABLE IF NOT EXISTS announcements (
     content TEXT,
     type VARCHAR(50),
     priority VARCHAR(20),
-    visible_roles TEXT[],
-    target_employees TEXT[],
+    visible_roles JSON DEFAULT NULL,
+    target_employees JSON DEFAULT NULL,
     status VARCHAR(20) DEFAULT 'active',
     created_by VARCHAR(64) REFERENCES employees(id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
@@ -314,9 +315,9 @@ CREATE TABLE IF NOT EXISTS reports (
     id VARCHAR(64) PRIMARY KEY,
     store_id VARCHAR(64) NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
     type VARCHAR(50),
-    content JSONB,
+    content JSON,
     report_date DATE,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
@@ -331,7 +332,7 @@ CREATE TABLE IF NOT EXISTS store_config (
     enabled BOOLEAN DEFAULT TRUE,
     visible_to_staff BOOLEAN DEFAULT TRUE,
     sort_order INT DEFAULT 0,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(store_id, category, code)
 );
 
@@ -343,11 +344,11 @@ CREATE TABLE IF NOT EXISTS activities (
     store_id VARCHAR(64) NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
     title VARCHAR(500) NOT NULL,
     content TEXT,
-    start_at TIMESTAMPTZ,
-    end_at TIMESTAMPTZ,
+    start_at DATETIME,
+    end_at DATETIME,
     status VARCHAR(20) DEFAULT 'active',
     created_by VARCHAR(64) REFERENCES employees(id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
@@ -360,8 +361,8 @@ CREATE TABLE IF NOT EXISTS meetings (
     customer_id VARCHAR(64) REFERENCES customers(id) ON DELETE SET NULL,
     scene VARCHAR(50),
     status VARCHAR(20) DEFAULT 'recording',
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
@@ -373,7 +374,7 @@ CREATE TABLE IF NOT EXISTS meeting_transcripts (
     content TEXT,
     speaker VARCHAR(50),
     seq INT DEFAULT 0,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
@@ -382,8 +383,8 @@ CREATE TABLE IF NOT EXISTS meeting_transcripts (
 CREATE TABLE IF NOT EXISTS meeting_analysis (
     id VARCHAR(64) PRIMARY KEY,
     meeting_id VARCHAR(64) NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
-    report JSONB,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    report JSON,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
@@ -393,7 +394,7 @@ CREATE TABLE IF NOT EXISTS meeting_consents (
     id VARCHAR(64) PRIMARY KEY,
     meeting_id VARCHAR(64) NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
     consented BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
@@ -404,7 +405,7 @@ CREATE TABLE IF NOT EXISTS meeting_access_logs (
     meeting_id VARCHAR(64) NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
     employee_id VARCHAR(64) REFERENCES employees(id) ON DELETE SET NULL,
     action VARCHAR(50),
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
@@ -415,6 +416,6 @@ CREATE TABLE IF NOT EXISTS playbooks (
     category VARCHAR(100),
     title VARCHAR(500),
     content TEXT,
-    tags TEXT[],
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    tags JSON DEFAULT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );

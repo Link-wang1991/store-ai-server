@@ -16,7 +16,16 @@ public class Meeting {
     private String employeeId;
     private String customerId;
     private String scene;
-    private String status;       // recording / transcribing / analyzing / done / failed
+    private String status;
+    private String employeeName;
+    private String customerName;
+    private Integer duration;
+    private String audioUrl;
+    private String asrTaskId;
+    private String transcriptStatus;
+    private String analysisStatus;
+    private Integer audioDuration;
+    private OffsetDateTime endedAt;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
 }

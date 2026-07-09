@@ -25,10 +25,8 @@ public class TaskController {
     @GetMapping
     public ApiResponse<List<Task>> list(@RequestParam(required = false) String status) {
         var qw = new LambdaQueryWrapper<Task>()
-                .eq(Task::getStoreId, cur.storeId());
-        if (!cur.isAdmin()) {
-            qw.eq(Task::getAssignedTo, cur.employeeId());
-        }
+                .eq(Task::getStoreId, cur.storeId())
+                .eq(Task::getAssignedTo, cur.employeeId());
         if (status != null) {
             qw.eq(Task::getStatus, status);
         }

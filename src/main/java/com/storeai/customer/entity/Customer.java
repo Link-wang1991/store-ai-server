@@ -23,6 +23,10 @@ public class Customer {
     private String tags;
     private String portrait;        // AI 画像 JSON
     private Integer totalVisits;
+    private String concerns;         // 客户顾虑/异议（JSON 数组或文本）
+    private String aiSuggestion;     // AI 跟进建议
+    private String importRaw;        // 导入原始数据 JSON（含 insight）
+    private OffsetDateTime lastActiveAt; // 上次互动时间
     private OffsetDateTime lastVisitAt;
     private OffsetDateTime nextFollowAt;
     private OffsetDateTime createdAt;

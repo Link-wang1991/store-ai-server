@@ -17,9 +17,12 @@ public class ChatMessage {
     private String employeeId;
     private String role;            // user / ai
     private String content;
+    private String aiResponse;
+    private String questionCategory;
     private String answerType;      // knowledge / general / need_confirm / risk
     private String riskLevel;       // L1 / L2 / L3 / L4
     private String retrievedChunks; // JSON
+    private Boolean needsReview;
     private String customerId;
     private OffsetDateTime createdAt;
 }
