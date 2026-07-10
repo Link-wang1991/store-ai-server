@@ -32,4 +32,10 @@ public class CustomerController {
                                          @RequestBody Customer customer) {
         return ApiResponse.ok(customerService.update(id, customer));
     }
+
+    @DeleteMapping("/{id}")
+    public ApiResponse<Void> delete(@PathVariable String id) {
+        customerService.delete(id);
+        return ApiResponse.ok();
+    }
 }

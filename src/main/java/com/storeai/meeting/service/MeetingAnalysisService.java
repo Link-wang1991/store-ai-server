@@ -91,9 +91,18 @@ public class MeetingAnalysisService {
             // 转写失败
             String error = data.get("output") != null ? data.get("output").toString() : taskStatus;
             jdbc.update("UPDATE meetings SET status = 'failed', transcript_status = 'failed' WHERE id = ?", id);
-            String reason = error.contains("NO_VALID_FRAGMENT")
-                    ? "未识别到有效语音（录音可能太短、太嘈杂或无人说话）"
-                    : "语音转写失败";
+            String reason;
+            if (error.contains("NO_VALID_FRAGMENT")) {
+                reason = "未识别到有效语音。可能原因：①录音太短（建议10秒以上）②没人说话或音量太小③环境太嘈杂。建议重录时靠近麦克风、保持环境安静。";
+            } else if (error.contains("AudioDurationExceed")) {
+                reason = "录音文件超长，语音转写仅支持最长6小时的音频。";
+            } else if (error.contains("InvalidFile") || error.contains("Unsupported")) {
+                reason = "录音格式不支持，请使用常见的音频格式（MP4/AAC/WebM/MP3）。";
+            } else if (error.contains("file_url") || error.contains("download")) {
+                reason = "语音识别服务无法获取录音文件，可能是网络问题，请重试。";
+            } else {
+                reason = "语音转写失败（" + taskStatus + "），请重新提交转写。";
+            }
             return Map.of("status", "failed", "error", reason);
         }
 

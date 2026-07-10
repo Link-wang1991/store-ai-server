@@ -132,6 +132,21 @@ public class MeetingController {
         if (m == null || !cur.storeId().equals(m.getStoreId())) {
             throw BizException.notFound("会谈记录");
         }
+
+        // 如果绑定了新客户，清理旧的占位客户并更新 meeting 的客户名
+        String newCustomerId = (String) fields.get("customer_id");
+        if (newCustomerId != null && m.getCustomerId() != null && !newCustomerId.equals(m.getCustomerId())) {
+            var oldCust = customerRepo.selectById(m.getCustomerId());
+            if (oldCust != null && oldCust.getName() != null && oldCust.getName().startsWith("新客户")) {
+                customerRepo.deleteById(m.getCustomerId());
+            }
+            // 更新 meeting 的客户名字段
+            var newCust = customerRepo.selectById(newCustomerId);
+            if (newCust != null && newCust.getName() != null) {
+                fields.put("customer_name", newCust.getName());
+            }
+        }
+
         var wrapper = new UpdateWrapper<Meeting>().eq("id", id);
         fields.forEach((key, val) -> wrapper.set(key, val));
         meetingRepo.update(null, wrapper);
@@ -203,6 +218,18 @@ public class MeetingController {
             throw BizException.notFound("会谈记录");
         }
         meetingRepo.deleteById(id);
+        return ApiResponse.ok();
+    }
+
+    /** 标记当前员工所有 recording 状态的会谈为 failed（避免残留） */
+    @PostMapping("/batch-fail-recording")
+    public ApiResponse<Void> batchFailRecording() {
+        var wrapper = new UpdateWrapper<Meeting>()
+                .eq("store_id", cur.storeId())
+                .eq("employee_id", cur.employeeId())
+                .eq("status", "recording");
+        wrapper.set("status", "failed");
+        meetingRepo.update(null, wrapper);
         return ApiResponse.ok();
     }
 
@@ -427,6 +454,16 @@ public class MeetingController {
         var rows = jdbc.queryForList(
             "SELECT * FROM meeting_transcripts WHERE meeting_id = ? ORDER BY seq ASC",
             id
+        );
+        return ApiResponse.ok(rows);
+    }
+
+    /** 获取门店咨询场景列表（可配置，后端 store_config 表维护） */
+    @GetMapping("/scenes")
+    public ApiResponse<List<Map<String, Object>>> listScenes() {
+        var rows = jdbc.queryForList(
+            "SELECT code, display_name, sort_order FROM store_config WHERE store_id = ? AND category = 'meeting_scene' AND enabled = TRUE ORDER BY sort_order ASC",
+            cur.storeId()
         );
         return ApiResponse.ok(rows);
     }

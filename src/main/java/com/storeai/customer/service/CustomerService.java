@@ -17,6 +17,7 @@ public class CustomerService {
 
     private final CustomerRepository customerRepo;
     private final CurrentUser cur;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbc;
 
     /** 返回全店客户（会谈页面需按分配人拆分显示） */
     public List<Customer> listByScope() {
@@ -41,6 +42,7 @@ public class CustomerService {
     /** 更新客户基础信息 */
     public Customer update(String id, Customer update) {
         Customer c = getById(id);
+        String oldName = c.getName();
         if (update.getName() != null) c.setName(update.getName());
         if (update.getPhone() != null) c.setPhone(update.getPhone());
         if (update.getGender() != null) c.setGender(update.getGender());
@@ -49,6 +51,17 @@ public class CustomerService {
         if (update.getAssignedTo() != null) c.setAssignedTo(update.getAssignedTo());
         c.setUpdatedAt(OffsetDateTime.now());
         customerRepo.updateById(c);
+
+        // 客户改名时同步更新相关会谈记录的 customer_name
+        if (update.getName() != null && !update.getName().equals(oldName)) {
+            jdbc.update("UPDATE meetings SET customer_name = ? WHERE customer_id = ? AND store_id = ?",
+                update.getName(), id, cur.storeId());
+        }
         return c;
+    }
+
+    public void delete(String id) {
+        Customer c = getById(id);
+        customerRepo.deleteById(id);
     }
 }

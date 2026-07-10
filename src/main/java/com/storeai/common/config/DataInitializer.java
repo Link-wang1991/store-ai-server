@@ -124,8 +124,37 @@ public class DataInitializer implements CommandLineRunner {
 
         log.info("演示数据初始化完成: 门店={}, 员工={}人", storeId, demos.length);
 
-        // --- 3. 演示客户 + 任务 ---
+        // --- 3. 默认咨询场景 ---
+        seedScenes(storeId);
+
+        // --- 4. 演示客户 + 任务 ---
         seedDemoCustomersAndTasks(storeId, passwordHash);
+    }
+
+    private void seedScenes(String storeId) {
+        // 只插入一次，已有数据不覆盖
+        int existing = jdbc.queryForObject(
+            "SELECT COUNT(*) FROM store_config WHERE store_id = ? AND category = 'meeting_scene'", Integer.class, storeId);
+        if (existing > 0) return;
+
+        String[][] scenes = {
+            {"new_consult", "新客咨询", "1"},
+            {"project_intro", "项目介绍", "2"},
+            {"deal_consult", "成交沟通", "3"},
+            {"pre_service", "服务前沟通", "4"},
+            {"post_service", "服务后反馈", "5"},
+            {"repurchase", "老客复购", "6"},
+            {"complaint", "客户投诉", "7"},
+            {"campaign_invite", "活动邀约", "8"},
+            {"price_objection", "价格异议", "9"},
+            {"effect_doubt", "效果疑虑", "10"},
+        };
+        for (String[] s : scenes) {
+            jdbc.update(
+                "INSERT INTO store_config (id, store_id, category, code, display_name, enabled, sort_order, created_at) VALUES (?, ?, 'meeting_scene', ?, ?, TRUE, ?, NOW())",
+                UUID.randomUUID().toString().replace("-", ""), storeId, s[0], s[1], Integer.parseInt(s[2]));
+        }
+        log.info("默认咨询场景已初始化: {}条", scenes.length);
     }
 
     private void seedDemoCustomersAndTasks(String storeId, String passwordHash) {
