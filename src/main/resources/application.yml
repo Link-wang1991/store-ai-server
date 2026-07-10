@@ -49,15 +49,15 @@ minio:
 
 # AI
 ai:
-  provider: ${AI_PROVIDER:mock}
+  provider: deepseek
   deepseek:
-    api-key: ${DEEPSEEK_API_KEY:}
-    base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
-    model: ${DEEPSEEK_MODEL:deepseek-chat}
+    api-key: sk-5c9abee0cf3941f9bc3614eec7236939
+    base-url: https://api.deepseek.com
+    model: deepseek-v4-pro
   qwen:
-    api-key: ${DASHSCOPE_API_KEY:}
-    text-model: qwen-plus
-    vision-model: qwen-vl-plus
+    api-key: sk-1441823d0d384ae2a0fb0db0ea4a65d2
+    text-model: qwen3.6-plus
+    vision-model: qwen3.6-plus
     asr-api-url: https://dashscope.aliyuncs.com/api/v1/services/audio/asr/asynctask
 
 # SpringDoc
