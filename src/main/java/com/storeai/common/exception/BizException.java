@@ -25,6 +25,10 @@ public class BizException extends RuntimeException {
         return new BizException(403, "无权限执行此操作");
     }
 
+    public static BizException forbidden(String message) {
+        return new BizException(403, message);
+    }
+
     public static BizException notFound(String resource) {
         return new BizException(404, resource + "不存在");
     }
