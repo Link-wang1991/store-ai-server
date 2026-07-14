@@ -60,21 +60,32 @@ public class AiAdapter {
     }
 
     /**
-     * 调用 AI 模型生成回答。
-     * @param system 系统提示词
-     * @param user 用户提示词
-     * @param history 历史消息（可选）
-     * @return AI 回答文本；失败返回 null
+     * 调用 AI 模型生成回答（自由文本）。
      */
     public String call(String system, String user, List<Map<String, String>> history) {
+        return post(system, user, history, false);
+    }
+
+    /**
+     * 调用 AI 模型并要求返回严格 JSON（结构化输出）。
+     * 借助厂商的 response_format=json_object，把解析失败率降到最低。
+     * 失败（mock 或未配置）返回 null。
+     */
+    public String callJson(String system, String user) {
+        String sys = system + "\n【输出要求】你必须且只能输出一个合法的 JSON 对象，禁止包含 ``` 代码块标记、禁止输出任何额外解释文字，直接以 { 开头、} 结尾。";
+        return post(sys, user, null, true);
+    }
+
+    private String post(String system, String user, List<Map<String, String>> history, boolean json) {
         return switch (provider) {
-            case "deepseek" -> callDeepSeek(system, user, history);
-            case "qwen" -> callQwen(system, user, history);
+            case "deepseek" -> postTo(deepseekUrl + "/chat/completions", deepseekKey, deepseekModel, system, user, history, json);
+            case "qwen" -> postTo("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", qwenKey, qwenModel, system, user, history, json);
             default -> null;
         };
     }
 
-    private String callDeepSeek(String system, String user, List<Map<String, String>> history) {
+    private String postTo(String url, String key, String model, String system, String user,
+                          List<Map<String, String>> history, boolean json) {
         try {
             var messages = mapper.createArrayNode();
             messages.add(mapper.createObjectNode()
@@ -89,65 +100,29 @@ public class AiAdapter {
                     .put("role", "user").put("content", user));
 
             var body = mapper.createObjectNode();
-            body.put("model", deepseekModel);
+            body.put("model", model);
             body.set("messages", messages);
-            body.put("temperature", 0.6);
+            body.put("temperature", json ? 0.3 : 0.6);
+            if (json) {
+                body.putObject("response_format").put("type", "json_object");
+            }
 
             var request = HttpRequest.newBuilder()
-                    .uri(URI.create(deepseekUrl + "/chat/completions"))
+                    .uri(URI.create(url))
                     .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + deepseekKey)
-                    .timeout(Duration.ofSeconds(60))
+                    .header("Authorization", "Bearer " + key)
+                    .timeout(Duration.ofSeconds(90))
                     .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)))
                     .build();
 
             var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() != 200) {
-                log.warn("DeepSeek API 返回 {}", response.statusCode());
+                log.warn("AI API 返回 {}", response.statusCode());
                 return null;
             }
             return extractContent(mapper.readTree(response.body()));
         } catch (Exception e) {
-            log.error("DeepSeek 调用失败: {}", e.getMessage());
-            return null;
-        }
-    }
-
-    private String callQwen(String system, String user, List<Map<String, String>> history) {
-        try {
-            var messages = mapper.createArrayNode();
-            messages.add(mapper.createObjectNode()
-                    .put("role", "system").put("content", system));
-            if (history != null) {
-                for (var h : history) {
-                    messages.add(mapper.createObjectNode()
-                            .put("role", h.get("role")).put("content", h.get("content")));
-                }
-            }
-            messages.add(mapper.createObjectNode()
-                    .put("role", "user").put("content", user));
-
-            var body = mapper.createObjectNode();
-            body.put("model", qwenModel);
-            body.set("messages", messages);
-            body.put("temperature", 0.6);
-
-            var request = HttpRequest.newBuilder()
-                    .uri(URI.create("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"))
-                    .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + qwenKey)
-                    .timeout(Duration.ofSeconds(60))
-                    .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)))
-                    .build();
-
-            var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() != 200) {
-                log.warn("Qwen API 返回 {}", response.statusCode());
-                return null;
-            }
-            return extractContent(mapper.readTree(response.body()));
-        } catch (Exception e) {
-            log.error("Qwen 调用失败: {}", e.getMessage());
+            log.error("AI 调用失败: {}", e.getMessage());
             return null;
         }
     }

@@ -23,7 +23,9 @@ public class Meeting {
     private String audioUrl;
     private String asrTaskId;
     private String transcriptStatus;
+    private String failReason;
     private String analysisStatus;
+    private Integer qualityScore;
     private Integer audioDuration;
     private OffsetDateTime endedAt;
     private OffsetDateTime createdAt;

@@ -100,6 +100,7 @@ public class MeetingController {
         result.put("audio_url", m.getAudioUrl());
         result.put("asr_task_id", m.getAsrTaskId());
         result.put("transcript_status", m.getTranscriptStatus());
+        result.put("fail_reason", m.getFailReason());
         result.put("analysis_status", m.getAnalysisStatus());
         result.put("duration", m.getDuration());
         result.put("audio_duration", m.getAudioDuration());
