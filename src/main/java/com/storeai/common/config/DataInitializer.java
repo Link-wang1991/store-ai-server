@@ -85,6 +85,14 @@ public class DataInitializer implements CommandLineRunner {
             {"meeting_consents", "store_id", "VARCHAR(64)"},
             {"tasks", "updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP"},
             {"tasks", "feedback", "TEXT"},
+            {"pending_questions", "category", "VARCHAR(50)"},
+            {"pending_questions", "risk_level", "VARCHAR(10)"},
+            {"customers", "next_follow_at", "DATETIME"},
+            {"opportunities", "source", "VARCHAR(50)"},
+            {"opportunities", "description", "TEXT"},
+            {"knowledge_gaps", "answer", "TEXT"},
+            {"knowledge_gaps", "resolved_by", "VARCHAR(64)"},
+            {"knowledge_gaps", "resolved_at", "DATETIME"},
         };
         for (String[] c : cols) addColumnIfMissing(c[0], c[1], c[2]);
         safeExec("ALTER TABLE chat_messages MODIFY COLUMN user_message TEXT NULL");

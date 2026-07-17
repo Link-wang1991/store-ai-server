@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.storeai.ai.AiAdapter;
 import com.storeai.common.exception.BizException;
+import com.storeai.customer.service.CustomerTimelineService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -26,6 +27,7 @@ public class MeetingAnalysisService {
     private final JdbcTemplate jdbc;
     private final AiAdapter aiAdapter;
     private final ComplianceScanner complianceScanner;
+    private final CustomerTimelineService customerTimelineService;
 
     /** 高质量会谈阈值：达到则自动沉淀优质经验 + 生成训练任务 */
     private static final int DISTILL_THRESHOLD = 75;
@@ -252,9 +254,13 @@ public class MeetingAnalysisService {
 
         jdbc.update("UPDATE meetings SET status = 'done', analysis_status = 'done', quality_score = ? WHERE id = ?", qualityScore, id);
 
-        // ⑥ 高质量会谈自动沉淀经验 + 生成训练任务（幂等）
-        if (qualityScore >= DISTILL_THRESHOLD) {
-            distillExperience(id, storeId, row, analysis);
+        // ⑥ 完整闭环：经验沉淀 + 跟进任务 + 合规整改 + 店长通知 + 低分告警 + 客户记忆 + 知识缺口
+        closeLoop(id, storeId, analysisId, row, analysis, qualityScore);
+
+        // 记录客户互动时间线
+        if (row.get("customer_id") != null) {
+            customerTimelineService.addInteraction((String) row.get("customer_id"), "meeting_analysis",
+                "会谈分析完成，质量分：" + qualityScore + "，摘要：" + safeStr(analysis.get("summary")));
         }
 
         return Map.of("status", "done");
@@ -569,58 +575,344 @@ public class MeetingAnalysisService {
         return clampScore(v);
     }
 
-    // ===================== ⑥ 经验沉淀闭环 =====================
+    // ===================== ⑥ 完整闭环 =====================
+
+    /** 低分会谈告警阈值 */
+    private static final int LOW_SCORE_THRESHOLD = 50;
 
     /**
-     * 高质量会谈自动沉淀：优质话术进知识库，改进项生成训练任务卡。
-     * 用 distilled 标志保证幂等，异常不影响主流程。
+     * 分析完成后执行完整闭环：
+     * - 高分（≥75）：沉淀经验 + 训练任务 + 跟进任务 + 更新客户跟进时间
+     * - 合规 L3/L4：生成整改任务 + 通知店长
+     * - 店长介入：通知店长
+     * - 低分（<50）：强制培训 + 告警
+     * - 客户记忆：写入 memory_items
+     * - 知识缺口：分析失败时记录
+     * 幂等：用 distilled 标志 + source_id 去重，异常不影响主流程。
      */
-    private void distillExperience(String meetingId, String storeId, Map<String, Object> row, Map<String, Object> analysis) {
+    private void closeLoop(String meetingId, String storeId, String analysisId,
+                           Map<String, Object> row, Map<String, Object> analysis, int qualityScore) {
         try {
-            Integer done = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM meeting_analysis WHERE meeting_id = ? AND distilled = 1", Integer.class, meetingId);
-            if (done != null && done > 0) return;
-
+            String customerId = (String) row.get("customer_id");
+            String employeeId = (String) row.get("employee_id");
             String scene = (String) row.get("scene");
             String customerName = (String) row.get("customer_name");
-            String employeeId = (String) row.get("employee_id");
+            String summary = safeStr(analysis.get("summary"));
 
-            // 1) 优质话术 → 知识库
-            String script = safeStr(analysis.get("suggested_script"));
-            String didWell = safeStr(analysis.get("employee_did_well"));
-            if (!script.isBlank() || !didWell.isBlank()) {
-                String title = "会谈优质话术 · " + (scene == null ? "" : scene);
-                Integer cnt = jdbc.queryForObject(
-                    "SELECT COUNT(*) FROM knowledge_documents WHERE store_id = ? AND title = ?", Integer.class, storeId, title);
-                if (cnt == null || cnt == 0) {
-                    String docId = UUID.randomUUID().toString().replace("-", "");
-                    jdbc.update(
-                        "INSERT INTO knowledge_documents (id, store_id, title, category, status, uploaded_by, visible_roles, created_at, updated_at) VALUES (?, ?, ?, '会谈沉淀', 'active', ?, '[\"owner\",\"manager\",\"consultant\"]', ?, ?)",
-                        docId, storeId, title, employeeId == null ? "" : employeeId,
-                        OffsetDateTime.now().toString(), OffsetDateTime.now().toString());
-                    String content = (script.isBlank() ? "" : "【建议话术】\n" + script + "\n\n")
-                        + (didWell.isBlank() ? "" : "【值得复制的做法】\n" + didWell);
-                    jdbc.update(
-                        "INSERT INTO knowledge_chunks (id, store_id, document_id, content, seq, created_at) VALUES (?, ?, ?, ?, 0, ?)",
-                        UUID.randomUUID().toString().replace("-", ""), storeId, docId, content, OffsetDateTime.now().toString());
-                }
+            // A. 高分会谈：经验沉淀 + 跟进任务
+            if (qualityScore >= DISTILL_THRESHOLD) {
+                distillExperience(meetingId, storeId, scene, customerName, employeeId, analysis);
+                createFollowupTask(storeId, employeeId, customerId, analysis);
+                updateCustomerFollowupAt(storeId, customerId, analysis);
             }
 
-            // 2) 改进项 → 训练任务卡
-            String improve = safeStr(analysis.get("employee_to_improve"));
-            if (!improve.isBlank() && employeeId != null) {
-                jdbc.update(
-                    "INSERT INTO tasks (id, store_id, title, content, type, status, assigned_to, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, 'training', 'todo', ?, ?, ?, ?)",
-                    UUID.randomUUID().toString().replace("-", ""), storeId,
-                    "会谈改进项 · " + (customerName == null ? "客户" : customerName),
-                    improve, employeeId, employeeId,
-                    OffsetDateTime.now().toString(), OffsetDateTime.now().toString());
+            // B. 合规整改：L3/L4 命中生成整改任务
+            createComplianceFixTasks(storeId, employeeId, customerName, analysis);
+
+            // C. 店长介入通知
+            if (Boolean.TRUE.equals(analysis.get("need_manager_involved"))
+                    || toIntFlag(analysis.get("need_manager_involved")) == 1) {
+                notifyManager(storeId, employeeId, summary, analysis);
+            }
+
+            // D. 低分会谈告警
+            if (qualityScore < LOW_SCORE_THRESHOLD) {
+                handleLowScore(storeId, employeeId, customerName, summary, analysis);
+            }
+
+            // E. 客户记忆写入
+            if (customerId != null && !customerId.isBlank()) {
+                writeCustomerMemory(storeId, customerId, employeeId, analysisId, analysis, qualityScore);
+            }
+
+            // F. 知识缺口记录
+            if (summary.isBlank() || analysis.containsKey("raw")) {
+                recordKnowledgeGap(storeId, employeeId, scene);
             }
 
             jdbc.update("UPDATE meeting_analysis SET distilled = 1 WHERE meeting_id = ?", meetingId);
-            log.info("经验沉淀完成: meeting={}, quality阈值={}", meetingId, DISTILL_THRESHOLD);
+            log.info("闭环完成: meeting={}, quality={}", meetingId, qualityScore);
         } catch (Exception e) {
-            log.warn("经验沉淀失败（不影响主流程）: {}", e.getMessage());
+            log.warn("闭环执行异常（不影响主流程）: {}", e.getMessage());
         }
+    }
+
+    // ---------- A. 高分经验沉淀（改为审核任务） ----------
+
+    private void distillExperience(String meetingId, String storeId, String scene,
+                                   String customerName, String employeeId, Map<String, Object> analysis) {
+        String script = safeStr(analysis.get("suggested_script"));
+        String didWell = safeStr(analysis.get("employee_did_well"));
+        String summary = safeStr(analysis.get("summary"));
+
+        // 优质话术先提交审核任务，不直接入库
+        if ((!script.isBlank() || !didWell.isBlank()) && employeeId != null) {
+            String managerId = findManagerId(storeId);
+            if (managerId != null) {
+                String content = "会谈 ID：" + meetingId + "\n场景：" + scene + "\n摘要：" + summary + "\n\n"
+                    + (script.isBlank() ? "" : "【建议话术】\n" + script + "\n\n")
+                    + (didWell.isBlank() ? "" : "【值得复制的做法】\n" + didWell)
+                    + "\n\n请审核：脱敏、验证结果后决定是否沉淀为门店经验。";
+                createTask(storeId, "审核会谈经验：" + scene, content,
+                    "experience_review", managerId, employeeId, null);
+            }
+        }
+
+        // 改进项仍直接生成训练任务
+        String improve = safeStr(analysis.get("employee_to_improve"));
+        if (!improve.isBlank() && employeeId != null) {
+            createTask(storeId, "会谈改进项 · " + (customerName == null ? "客户" : customerName),
+                improve, "training", employeeId, employeeId, null);
+        }
+    }
+
+    // ---------- A. 跟进任务 + 客户跟进时间 ----------
+
+    private void createFollowupTask(String storeId, String employeeId, String customerId, Map<String, Object> analysis) {
+        String goal = safeStr(analysis.get("followup_goal"));
+        if (goal.isBlank() || employeeId == null) return;
+
+        String script = safeStr(analysis.get("suggested_script"));
+        String followupAt = safeStr(analysis.get("suggested_followup_at"));
+        OffsetDateTime dueAt = parseFollowupAt(followupAt);
+
+        String content = "跟进目标：" + goal;
+        if (!script.isBlank()) content += "\n建议话术：" + script;
+        if (!followupAt.isBlank()) content += "\n建议时间：" + followupAt;
+
+        createTask(storeId, "跟进：" + goal, content, "followup", employeeId, employeeId, dueAt);
+    }
+
+    private void updateCustomerFollowupAt(String storeId, String customerId, Map<String, Object> analysis) {
+        if (customerId == null || customerId.isBlank()) return;
+        String followupAt = safeStr(analysis.get("suggested_followup_at"));
+        OffsetDateTime dueAt = parseFollowupAt(followupAt);
+        if (dueAt == null) return;
+        try {
+            jdbc.update("UPDATE customers SET next_follow_at = ?, updated_at = NOW() WHERE id = ? AND store_id = ?",
+                dueAt.toString(), customerId, storeId);
+        } catch (Exception e) {
+            log.debug("更新客户跟进时间失败: {}", e.getMessage());
+        }
+    }
+
+    // ---------- B. 合规整改任务 ----------
+
+    private void createComplianceFixTasks(String storeId, String employeeId, String customerName, Map<String, Object> analysis) {
+        Object hitsObj = analysis.get("compliance_hits");
+        if (!(hitsObj instanceof List<?> hits) || hits.isEmpty() || employeeId == null) return;
+
+        for (Object h : hits) {
+            if (!(h instanceof Map<?, ?> raw)) continue;
+            @SuppressWarnings("unchecked")
+            Map<String, Object> hit = (Map<String, Object>) raw;
+            Object levelObj = hit.get("level");
+            int level = levelObj instanceof Number n ? n.intValue() : 0;
+            if (level < 3) continue;
+
+            String word = String.valueOf(hit.getOrDefault("word", ""));
+            String categoryName = String.valueOf(hit.getOrDefault("category", ""));
+            String ctx = String.valueOf(hit.getOrDefault("context", ""));
+
+            String content = "违规词：" + word + "\n等级：" + ComplianceScanner.levelName(level)
+                + "\n分类：" + categoryName + "\n上下文：" + ctx
+                + "\n客户：" + (customerName == null ? "" : customerName);
+
+            createTask(storeId, "合规整改：" + word, content, "compliance_fix", employeeId, employeeId, null);
+        }
+    }
+
+    // ---------- C. 店长介入通知 ----------
+
+    private void notifyManager(String storeId, String employeeId, String summary, Map<String, Object> analysis) {
+        String complianceRisks = safeStr(analysis.get("compliance_risks"));
+        String question = "【会谈风险】" + (summary.isBlank() ? "会谈存在需店长关注的风险" : summary);
+        String suggestion = complianceRisks.isBlank() ? "请查看会谈分析报告并介入处理" : complianceRisks;
+
+        int maxLevel = getMaxComplianceLevel(analysis);
+        String riskLevel = maxLevel >= 4 ? "L4" : maxLevel >= 3 ? "L3" : "L2";
+
+        createPendingQuestion(storeId, employeeId, question, suggestion, "会谈风险", riskLevel);
+    }
+
+    // ---------- D. 低分会谈告警 ----------
+
+    private void handleLowScore(String storeId, String employeeId, String customerName,
+                                String summary, Map<String, Object> analysis) {
+        String improve = safeStr(analysis.get("employee_to_improve"));
+        if (!improve.isBlank() && employeeId != null) {
+            createTask(storeId, "低分会谈改进 · " + (customerName == null ? "" : customerName),
+                improve, "training", employeeId, employeeId, null);
+        }
+
+        String question = "【低分会谈】" + (summary.isBlank() ? "会谈质量分低于50，需关注" : summary);
+        createPendingQuestion(storeId, employeeId, question,
+            "建议安排一对一辅导或旁听优秀员工会谈", "会谈质量", "L2");
+    }
+
+    // ---------- E. 客户记忆写入 ----------
+
+    private void writeCustomerMemory(String storeId, String customerId, String employeeId,
+                                     String analysisId, Map<String, Object> analysis, int qualityScore) {
+        Integer existing = jdbc.queryForObject(
+            "SELECT COUNT(*) FROM memory_items WHERE source_type = 'meeting_analysis' AND source_id = ?",
+            Integer.class, analysisId);
+        if (existing != null && existing > 0) return;
+
+        String confidence = confidenceLevel(qualityScore);
+        String now = OffsetDateTime.now().toString();
+
+        String needs = mergeNeeds(analysis);
+        if (!needs.isBlank()) {
+            insertMemoryItem(storeId, customerId, employeeId, "customer", "needs", needs, confidence, "meeting_analysis", analysisId, now);
+            if ("low".equals(confidence)) createMemoryConfirmTask(storeId, customerId, employeeId, "needs", needs, analysisId);
+        }
+
+        String concerns = safeStr(analysis.get("decision_barriers"));
+        if (!concerns.isBlank()) {
+            insertMemoryItem(storeId, customerId, employeeId, "customer", "concerns", concerns, confidence, "meeting_analysis", analysisId, now);
+            if ("low".equals(confidence)) createMemoryConfirmTask(storeId, customerId, employeeId, "concerns", concerns, analysisId);
+        }
+
+        String emotional = safeStr(analysis.get("emotional_needs"));
+        if (!emotional.isBlank()) {
+            insertMemoryItem(storeId, customerId, employeeId, "customer", "emotional_needs", emotional, confidence, "meeting_analysis", analysisId, now);
+            if ("low".equals(confidence)) createMemoryConfirmTask(storeId, customerId, employeeId, "emotional_needs", emotional, analysisId);
+        }
+    }
+
+    private void createMemoryConfirmTask(String storeId, String customerId, String employeeId,
+                                         String key, String value, String analysisId) {
+        createTask(storeId, "确认客户记忆：" + key,
+            "会谈分析识别出以下客户记忆，可信度较低，请确认或修正。\n\n"
+                + "类型：" + key + "\n"
+                + "内容：" + value + "\n"
+                + "来源会谈：" + analysisId + "\n\n"
+                + "如确认无误可忽略；如需修正请通过客户详情更新。",
+            "memory_confirm", employeeId, employeeId, null);
+    }
+
+    private void insertMemoryItem(String storeId, String customerId, String employeeId,
+                                  String scope, String key, String value, String confidence,
+                                  String sourceType, String sourceId, String now) {
+        jdbc.update(
+            "INSERT INTO memory_items (id, store_id, customer_id, employee_id, scope, `key`, value, confidence, source_type, source_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            UUID.randomUUID().toString().replace("-", ""), storeId, customerId, employeeId,
+            scope, key, value, confidence, sourceType, sourceId, now);
+    }
+
+    // ---------- F. 知识缺口记录 ----------
+
+    private void recordKnowledgeGap(String storeId, String employeeId, String scene) {
+        String gapId = UUID.randomUUID().toString().replace("-", "");
+        String question = (scene == null ? "未知场景" : scene) + "会谈分析信息不足，需补充相关培训资料";
+        jdbc.update(
+            "INSERT INTO knowledge_gaps (id, store_id, employee_id, question, status, created_at) VALUES (?, ?, ?, ?, 'pending', ?)",
+            gapId, storeId, employeeId, question, OffsetDateTime.now().toString());
+
+        // 自动生成分配给会谈员工的确认任务
+        if (employeeId != null) {
+            createTask(storeId, "补充知识缺口：" + scene,
+                "知识缺口 ID：" + gapId + "\n场景：" + scene + "\n问题：" + question + "\n请补充答案并决定是否入库。",
+                "knowledge_review", employeeId, employeeId, null);
+        }
+    }
+
+    // ---------- 闭环辅助方法 ----------
+
+    /** 查找门店负责人：先找 owner，再找 manager，最后取任意员工 */
+    private String findManagerId(String storeId) {
+        try {
+            return jdbc.queryForObject(
+                "SELECT id FROM employees WHERE store_id = ? AND role = 'owner' AND status = 'active' LIMIT 1",
+                String.class, storeId);
+        } catch (Exception ignored) {}
+        try {
+            return jdbc.queryForObject(
+                "SELECT id FROM employees WHERE store_id = ? AND role = 'manager' AND status = 'active' LIMIT 1",
+                String.class, storeId);
+        } catch (Exception ignored) {}
+        try {
+            return jdbc.queryForObject(
+                "SELECT id FROM employees WHERE store_id = ? AND status = 'active' LIMIT 1",
+                String.class, storeId);
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    private void createTask(String storeId, String title, String content, String type,
+                            String assignedTo, String createdBy, OffsetDateTime dueAt) {
+        jdbc.update(
+            "INSERT INTO tasks (id, store_id, title, content, type, status, assigned_to, created_by, due_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'todo', ?, ?, ?, ?, ?)",
+            UUID.randomUUID().toString().replace("-", ""), storeId,
+            title.length() > 200 ? title.substring(0, 200) : title,
+            content, type, assignedTo, createdBy,
+            dueAt == null ? null : dueAt.toString(),
+            OffsetDateTime.now().toString(), OffsetDateTime.now().toString());
+    }
+
+    private void createPendingQuestion(String storeId, String employeeId, String question,
+                                       String aiSuggestion, String category, String riskLevel) {
+        jdbc.update(
+            "INSERT INTO pending_questions (id, store_id, employee_id, question, ai_suggestion, status, category, risk_level, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)",
+            UUID.randomUUID().toString().replace("-", ""), storeId, employeeId,
+            question, aiSuggestion, category, riskLevel,
+            OffsetDateTime.now().toString(), OffsetDateTime.now().toString());
+    }
+
+    private int getMaxComplianceLevel(Map<String, Object> analysis) {
+        Object hitsObj = analysis.get("compliance_hits");
+        if (!(hitsObj instanceof List<?> hits)) return 0;
+        int max = 0;
+        for (Object h : hits) {
+            if (h instanceof Map<?, ?> hit) {
+                Object lv = hit.get("level");
+                if (lv instanceof Number n) max = Math.max(max, n.intValue());
+            }
+        }
+        return max;
+    }
+
+    /** 将中文时间描述解析为 OffsetDateTime（简易实现，覆盖常见表达） */
+    private OffsetDateTime parseFollowupAt(String text) {
+        if (text == null || text.isBlank()) return null;
+        OffsetDateTime now = OffsetDateTime.now();
+        if (text.contains("今天")) return now;
+        if (text.contains("明天")) return now.plusDays(1);
+        if (text.contains("3天") || text.contains("三天天")) return now.plusDays(3);
+        if (text.contains("一周") || text.contains("7天")) return now.plusDays(7);
+        if (text.contains("两周") || text.contains("14天")) return now.plusDays(14);
+        if (text.contains("下周")) {
+            int dayOfWeek = now.getDayOfWeek().getValue();
+            return now.plusDays(8 - dayOfWeek);
+        }
+        if (text.contains("本月") || text.contains("月底")) {
+            return now.withDayOfMonth(now.toLocalDate().lengthOfMonth());
+        }
+        // 提取数字天数
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(\\d+)\\s*天").matcher(text);
+        if (m.find()) {
+            try { return now.plusDays(Long.parseLong(m.group(1))); } catch (Exception ignored) {}
+        }
+        return now.plusDays(3);
+    }
+
+    private String confidenceLevel(int qualityScore) {
+        if (qualityScore >= 75) return "high";
+        if (qualityScore >= 50) return "medium";
+        return "low";
+    }
+
+    private String mergeNeeds(Map<String, Object> analysis) {
+        String explicit = safeStr(analysis.get("explicit_needs"));
+        String implicit = safeStr(analysis.get("implicit_needs"));
+        if (explicit.isBlank() && implicit.isBlank()) return "";
+        StringBuilder sb = new StringBuilder();
+        if (!explicit.isBlank()) sb.append(explicit);
+        if (!implicit.isBlank()) {
+            if (!sb.isEmpty()) sb.append("\n");
+            sb.append(implicit);
+        }
+        return sb.toString();
     }
 }

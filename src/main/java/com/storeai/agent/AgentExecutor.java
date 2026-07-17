@@ -3,6 +3,7 @@ package com.storeai.agent;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.storeai.common.util.CurrentUser;
+import com.storeai.customer.service.CustomerTimelineService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -25,6 +26,7 @@ public class AgentExecutor {
 
     private final CurrentUser cur;
     private final JdbcTemplate jdbc;
+    private final CustomerTimelineService customerTimelineService;
 
     private static final String START_MARKER = "【AGENT_ACTION】";
     private static final String END_MARKER = "【/AGENT_ACTION】";
@@ -128,7 +130,7 @@ public class AgentExecutor {
 
         var id = UUID.randomUUID().toString().replace("-", "");
         jdbc.update("""
-            INSERT INTO tasks (id, store_id, title, content, task_type, assigned_to, deadline, status, created_by, created_at)
+            INSERT INTO tasks (id, store_id, title, content, type, assigned_to, due_at, status, created_by, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, 'todo', ?, NOW())
             """,
             id, cur.storeId(), title, action.reason(),
@@ -146,8 +148,10 @@ public class AgentExecutor {
         var stage = action.payload().get("stage");
         if (stage == null) return new ActionResult("update_customer_stage", false, "缺少阶段值");
 
-        jdbc.update("UPDATE customers SET stage = ?, notes = CONCAT(IFNULL(notes,''), '【AI建议更新阶段】') WHERE id = ? AND store_id = ?",
+        jdbc.update("UPDATE customers SET stage = ?, ai_suggestion = CONCAT(IFNULL(ai_suggestion,''), '\n【AI建议更新阶段】') WHERE id = ? AND store_id = ?",
             stage, customerId, cur.storeId());
+        customerTimelineService.addInteraction(customerId, "stage_update",
+            "AI 建议更新客户阶段为：" + stage);
         return new ActionResult("update_customer_stage", true, "已建议更新客户阶段为: " + stage);
     }
 
@@ -158,6 +162,8 @@ public class AgentExecutor {
 
         jdbc.update("UPDATE customers SET tags = JSON_ARRAY_APPEND(IFNULL(tags,'[]'), '$', ?) WHERE id = ? AND store_id = ? AND (tags IS NULL OR NOT JSON_CONTAINS(tags, ?, '$'))",
             tag, customerId, cur.storeId(), "\"" + tag + "\"");
+        customerTimelineService.addInteraction(customerId, "tag_added",
+            "AI 添加客户标签：" + tag);
         return new ActionResult("add_customer_tag", true, "已添加标签\"" + tag + "\"");
     }
 
@@ -168,7 +174,7 @@ public class AgentExecutor {
 
         var id = UUID.randomUUID().toString().replace("-", "");
         jdbc.update("""
-            INSERT INTO tasks (id, store_id, title, content, task_type, assigned_to, status, created_by, created_at)
+            INSERT INTO tasks (id, store_id, title, content, type, assigned_to, status, created_by, created_at)
             VALUES (?, ?, ?, ?, '客户跟进', ?, 'todo', ?, NOW())
             """,
             id, cur.storeId(),
@@ -176,21 +182,25 @@ public class AgentExecutor {
             "通过" + method + "跟进: " + note,
             cur.employeeId(), cur.employeeId()
         );
+        customerTimelineService.addInteraction(customerId, "suggest_followup",
+            "AI 建议跟进：" + note + "，方式：" + method);
         return new ActionResult("suggest_followup", true, "已创建跟进建议，通过" + method + "跟进");
     }
 
     private ActionResult executeTriggerOpportunity(AgentAction action, String customerId) {
         if (customerId == null) return new ActionResult("trigger_opportunity", false, "未关联客户");
         var type = action.payload().get("opportunity_type");
-        if (type == null) return new ActionResult("trigger_opportunity", false, "缺少机会类型");
+        if (type == null || type.isBlank()) return new ActionResult("trigger_opportunity", false, "缺少机会类型");
 
         var id = UUID.randomUUID().toString().replace("-", "");
         jdbc.update("""
-            INSERT INTO opportunities (id, store_id, customer_id, employee_id, type, status, source, note, created_at)
+            INSERT INTO opportunities (id, store_id, customer_id, employee_id, type, status, source, description, created_at)
             VALUES (?, ?, ?, ?, ?, 'open', 'ai_agent', ?, NOW())
             """,
             id, cur.storeId(), customerId, cur.employeeId(), type, action.reason()
         );
+        customerTimelineService.addInteraction(customerId, "opportunity_created",
+            "AI 识别增长机会：" + type + "，说明：" + action.reason());
         return new ActionResult("trigger_opportunity", true, "已创建增长机会(" + type + ")");
     }
 

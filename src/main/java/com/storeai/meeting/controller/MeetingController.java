@@ -11,6 +11,7 @@ import com.storeai.common.util.CurrentUser;
 import com.storeai.common.exception.BizException;
 import com.storeai.customer.entity.Customer;
 import com.storeai.customer.repository.CustomerRepository;
+import com.storeai.customer.service.CustomerTimelineService;
 import com.storeai.meeting.entity.Meeting;
 import com.storeai.meeting.repository.MeetingRepository;
 import com.storeai.meeting.service.MeetingAnalysisService;
@@ -56,6 +57,7 @@ public class MeetingController {
     private final CurrentUser cur;
     private final JdbcTemplate jdbc;
     private final MeetingAnalysisService analysisService;
+    private final CustomerTimelineService customerTimelineService;
 
     // storage.provider: local | minio，默认 local
     @Value("${storage.provider:local}")
@@ -209,6 +211,12 @@ public class MeetingController {
         Customer cust = customerRepo.selectById(customerId);
         if (cust != null) m.setCustomerName(cust.getName());
         meetingRepo.insert(m);
+
+        if (customerId != null) {
+            customerTimelineService.addInteraction(customerId, "meeting_created",
+                "新建会谈，场景：" + (req.scene() == null ? "" : req.scene()));
+        }
+
         return ApiResponse.ok(m);
     }
 

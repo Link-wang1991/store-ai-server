@@ -9,9 +9,11 @@ import com.storeai.chat.entity.ChatSession;
 import com.storeai.chat.repository.ChatMessageRepository;
 import com.storeai.chat.repository.ChatSessionRepository;
 import com.storeai.common.util.CurrentUser;
+import com.storeai.customer.service.CustomerTimelineService;
 import com.storeai.knowledge.service.KnowledgeRetrieveService;
 import com.storeai.knowledge.service.KnowledgeService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.jdbc.core.JdbcTemplate;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -35,6 +37,8 @@ public class ChatPipelineService {
     private final KnowledgeService knowledgeService;
     private final CurrentUser cur;
     private final AiAdapter aiAdapter;
+    private final CustomerTimelineService customerTimelineService;
+    private final JdbcTemplate jdbc;
 
     public AnswerResult answer(String question, String sessionId, String customerId) {
         // 1. 会话管理
@@ -56,7 +60,14 @@ public class ChatPipelineService {
         var category = classification.category();
         var baseRisk = classification.baseRisk();
 
-        // 3. 知识库检索（Bigram）
+        // 3. 标准答案优先匹配
+        String standardAnswer = findStandardAnswer(question);
+        if (standardAnswer != null) {
+            return saveAnswer(question, sessionId, customerId, category, "L1",
+                "standard_answer", standardAnswer, List.of(), List.of());
+        }
+
+        // 4. 知识库检索（Bigram）
         var chunks = knowledgeService.search(question, 5);
         var chunkTexts = new ArrayList<String>();
         for (var c : chunks) {
@@ -64,7 +75,7 @@ public class ChatPipelineService {
         }
         boolean hasContext = !chunkTexts.isEmpty();
 
-        // 4. 定级+回答类型
+        // 5. 定级+回答类型
         String answerType;
         String riskLevel;
         if ("L4".equals(baseRisk)) {
@@ -81,7 +92,7 @@ public class ChatPipelineService {
             riskLevel = "L2";
         }
 
-        // 5. 生成回答
+        // 6. 生成回答
         String answer;
         if ("risk".equals(answerType)) {
             answer = buildRiskAnswer();
@@ -110,7 +121,7 @@ public class ChatPipelineService {
                 : buildGeneralAnswer(question);
         }
 
-        // 6. 合规检查（禁用词）
+        // 7. 合规检查（禁用词）
         boolean isInternal = question.matches(".*(排班|上班|几点|班次|休息|通知|培训|制度).*");
         var checkResult = ComplianceChecker.check(answer, List.of(), isInternal);
         answer = checkResult.text();
@@ -121,7 +132,31 @@ public class ChatPipelineService {
             answer += "\n\n⚠️ 提醒：若涉及具体价格/折扣/退款/活动政策，最终以店长/老板确认为准。";
         }
 
-        // 7. 落库消息
+        return saveAnswer(question, sessionId, customerId, category, riskLevel, answerType,
+            answer, chunks, bannedHit);
+    }
+
+    private String findStandardAnswer(String question) {
+        try {
+            return jdbc.queryForObject(
+                """
+                    SELECT answer FROM standard_answers
+                    WHERE store_id = ?
+                      AND (? LIKE CONCAT('%', question, '%') OR question LIKE CONCAT('%', ?, '%'))
+                    ORDER BY CHAR_LENGTH(question) DESC
+                    LIMIT 1
+                    """,
+                String.class, cur.storeId(), question, question);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private AnswerResult saveAnswer(String question, String sessionId, String customerId,
+                                    String category, String riskLevel, String answerType,
+                                    String answer,
+                                    List<KnowledgeRetrieveService.RetrievedChunk> chunks,
+                                    List<String> bannedHit) {
         var msg = new ChatMessage();
         msg.setStoreId(cur.storeId());
         msg.setSessionId(sessionId);
@@ -136,19 +171,24 @@ public class ChatPipelineService {
         msg.setCreatedAt(OffsetDateTime.now());
         messageRepo.insert(msg);
 
-        // 更新会话时间
         var session = sessionRepo.selectById(sessionId);
         if (session != null) {
             session.setUpdatedAt(OffsetDateTime.now());
             sessionRepo.updateById(session);
         }
 
+        if (customerId != null) {
+            customerTimelineService.addInteraction(customerId, "chat_message",
+                "员工咨询 AI：" + question);
+        }
+
+        List<RetrievedInfo> retrieved = chunks.stream()
+            .map(c -> new RetrievedInfo(c.id(), c.content().substring(0, Math.min(100, c.content().length()))))
+            .toList();
+
         return new AnswerResult(
             sessionId, msg.getId(), answer, category,
-            riskLevel, answerType,
-            chunks.stream().map(c ->
-                new RetrievedInfo(c.id(), c.content().substring(0, Math.min(100, c.content().length())))).toList(),
-            bannedHit
+            riskLevel, answerType, retrieved, bannedHit
         );
     }
 

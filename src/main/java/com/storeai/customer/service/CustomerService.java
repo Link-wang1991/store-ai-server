@@ -7,6 +7,7 @@ import com.storeai.customer.entity.Customer;
 import com.storeai.customer.repository.CustomerRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -18,6 +19,7 @@ public class CustomerService {
     private final CustomerRepository customerRepo;
     private final CurrentUser cur;
     private final org.springframework.jdbc.core.JdbcTemplate jdbc;
+    private final CustomerTimelineService customerTimelineService;
 
     /** 返回全店客户（会谈页面需按分配人拆分显示） */
     public List<Customer> listByScope() {
@@ -40,9 +42,11 @@ public class CustomerService {
     }
 
     /** 更新客户基础信息 */
+    @Transactional
     public Customer update(String id, Customer update) {
         Customer c = getById(id);
         String oldName = c.getName();
+        String oldStage = c.getStage();
         if (update.getName() != null) c.setName(update.getName());
         if (update.getPhone() != null) c.setPhone(update.getPhone());
         if (update.getGender() != null) c.setGender(update.getGender());
@@ -51,6 +55,11 @@ public class CustomerService {
         if (update.getAssignedTo() != null) c.setAssignedTo(update.getAssignedTo());
         c.setUpdatedAt(OffsetDateTime.now());
         customerRepo.updateById(c);
+
+        if (update.getStage() != null && !update.getStage().equals(oldStage)) {
+            customerTimelineService.addInteraction(id, "stage_update",
+                "客户阶段更新：" + oldStage + " → " + update.getStage());
+        }
 
         // 客户改名时同步更新相关会谈记录的 customer_name
         if (update.getName() != null && !update.getName().equals(oldName)) {

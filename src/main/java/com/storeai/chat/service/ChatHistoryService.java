@@ -61,6 +61,17 @@ public class ChatHistoryService {
         return result;
     }
 
+    public void deleteSession(String sessionId) {
+        var session = sessionRepo.selectById(sessionId);
+        if (session == null) {
+            throw BizException.badRequest("会话不存在");
+        }
+        if (!cur.employeeId().equals(session.getEmployeeId()) && !cur.isAdmin()) {
+            throw BizException.forbidden("无权删除该会话");
+        }
+        sessionRepo.deleteById(sessionId);
+    }
+
     public record SessionItem(String id, String title) {}
 
     public record ChatMessageItem(

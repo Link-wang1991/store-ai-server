@@ -36,5 +36,11 @@ public class ChatController {
         return ApiResponse.ok(historyService.listMessages(sessionId));
     }
 
+    @DeleteMapping("/sessions/{sessionId}")
+    public ApiResponse<Void> deleteSession(@PathVariable String sessionId) {
+        historyService.deleteSession(sessionId);
+        return ApiResponse.ok();
+    }
+
     public record ChatRequest(String question, String sessionId, String customerId) {}
 }

@@ -5,6 +5,7 @@ import com.storeai.common.util.CurrentUser;
 import com.storeai.common.exception.BizException;
 import com.storeai.task.entity.Task;
 import com.storeai.task.repository.TaskRepository;
+import com.storeai.task.service.TaskFeedbackService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 
 @Tag(name = "任务管理")
 @RestController
@@ -20,6 +22,7 @@ import java.util.List;
 public class TaskController {
 
     private final TaskRepository taskRepo;
+    private final TaskFeedbackService taskFeedbackService;
     private final CurrentUser cur;
 
     @GetMapping
@@ -58,4 +61,12 @@ public class TaskController {
         taskRepo.updateById(t);
         return ApiResponse.ok(t);
     }
+
+    @PostMapping("/{id}/complete")
+    public ApiResponse<Map<String, Object>> complete(@PathVariable String id,
+                                                      @RequestBody CompleteRequest req) {
+        return ApiResponse.ok(taskFeedbackService.complete(id, req.outcome(), req.note()));
+    }
+
+    public record CompleteRequest(String outcome, String note) {}
 }
