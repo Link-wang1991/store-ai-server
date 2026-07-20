@@ -55,6 +55,18 @@ public class StorageService {
         }
     }
 
+    /** 以流的方式读取私有会谈录音，供后台转写任务使用。调用方负责关闭流。 */
+    public InputStream openMeetingAudio(String objectName) {
+        try {
+            return minio.getObject(GetObjectArgs.builder()
+                    .bucket(config.getBucketMeeting())
+                    .object(objectName)
+                    .build());
+        } catch (Exception e) {
+            throw new BizException("读取录音文件失败");
+        }
+    }
+
     /** 生成预签名 URL（给 ASR 服务拉取私有文件） */
     public String presignedUrl(String objectName, int expiryHours) {
         try {

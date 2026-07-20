@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.storeai.ai.AiAdapter;
 import com.storeai.common.exception.BizException;
+import com.storeai.common.net.DirectProxySelector;
 import com.storeai.customer.service.CustomerTimelineService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -44,7 +45,9 @@ public class MeetingAnalysisService {
 
     private static final String DS_BASE = "https://dashscope.aliyuncs.com/api/v1";
     private final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(15)).build();
+            .connectTimeout(Duration.ofSeconds(15))
+            .proxy(DirectProxySelector.INSTANCE)
+            .build();
     private final ObjectMapper jsonMapper = new ObjectMapper();
 
     /**
@@ -59,6 +62,9 @@ public class MeetingAnalysisService {
         }
 
         try {
+            if ("queued".equals(status) || "submitting".equals(status)) {
+                return Map.of("status", status);
+            }
             if ("transcribing".equals(status)) {
                 return handleTranscribing(row);
             }
@@ -79,7 +85,8 @@ public class MeetingAnalysisService {
         String asrTaskId = (String) row.get("asr_task_id");
 
         if (asrTaskId == null) {
-            return Map.of("status", "transcribing");
+            jdbc.update("UPDATE meetings SET status = 'queued', transcript_status = 'pending', updated_at = NOW() WHERE id = ?", id);
+            return Map.of("status", "queued");
         }
 
         // 轮询 DashScope

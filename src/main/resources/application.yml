@@ -1,26 +1,29 @@
 server:
-  port: 8080
+  port: ${SERVER_PORT:8080}
 
 spring:
   application:
     name: store-ai-server
+  # 生产环境必须显式设置 SPRING_PROFILES_ACTIVE；演示数据仅在 dev profile 下初始化。
   profiles:
-    active: dev
-
+    active: ${SPRING_PROFILES_ACTIVE:}
   datasource:
-    url: ${DB_URL:jdbc:mysql://rm-wz985705s2po670h4ro.mysql.rds.aliyuncs.com:3306/store-ai?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false}
-    username: ${DB_USERNAME:store_ai}
-    password: ${DB_PASSWORD:Gaoxiaoli2010}
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
-      maximum-pool-size: 20
-      minimum-idle: 5
-
+      maximum-pool-size: ${DB_POOL_MAX:20}
+      minimum-idle: ${DB_POOL_MIN_IDLE:5}
   flyway:
     enabled: true
     locations: classpath:db/migration
     baseline-on-migrate: true
     repair-on-migrate: true
+  servlet:
+    multipart:
+      max-file-size: 60MB
+      max-request-size: 61MB
 
 mybatis-plus:
   mapper-locations: classpath*:/mapper/**/*.xml
@@ -33,14 +36,16 @@ mybatis-plus:
       logic-not-delete-value: 0
   configuration:
     map-underscore-to-camel-case: true
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
 
-# JWT
 jwt:
-  secret: ${JWT_SECRET:store-ai-jwt-secret-key-must-be-at-least-256-bits-long}
-  expiration: 604800000  # 7 天 (毫秒)
+  secret: ${JWT_SECRET}
+  expiration: ${JWT_EXPIRATION:604800000}
 
-# MinIO
+storage:
+  provider: ${STORAGE_PROVIDER:local}
+  local-path: ${STORAGE_LOCAL_PATH:./uploads/meeting-audio}
+
 minio:
   endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
   access-key: ${MINIO_ACCESS_KEY:minioadmin}
@@ -48,20 +53,18 @@ minio:
   bucket-knowledge: ${MINIO_BUCKET_KNOWLEDGE:store-knowledge}
   bucket-meeting: ${MINIO_BUCKET_MEETING:store-meeting}
 
-# AI
 ai:
-  provider: deepseek
+  provider: ${AI_PROVIDER:mock}
   deepseek:
-    api-key: sk-5c9abee0cf3941f9bc3614eec7236939
-    base-url: https://api.deepseek.com
-    model: deepseek-v4-pro
+    api-key: ${DEEPSEEK_API_KEY:}
+    base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
+    model: ${DEEPSEEK_MODEL:deepseek-chat}
   qwen:
-    api-key: sk-1441823d0d384ae2a0fb0db0ea4a65d2
-    text-model: qwen3.6-plus
-    vision-model: qwen3.6-plus
+    api-key: ${QWEN_API_KEY:}
+    text-model: ${QWEN_TEXT_MODEL:qwen-plus}
+    vision-model: ${QWEN_VISION_MODEL:qwen-vl-plus}
     asr-api-url: https://dashscope.aliyuncs.com/api/v1/services/audio/asr/asynctask
 
-# SpringDoc
 springdoc:
   api-docs:
     path: /api-docs

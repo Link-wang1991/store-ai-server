@@ -6,11 +6,13 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
+import org.springframework.context.annotation.Profile;
 
 import java.util.UUID;
 
 @Slf4j
 @Component
+@Profile("dev")
 @RequiredArgsConstructor
 public class DataInitializer implements CommandLineRunner {
 
@@ -55,6 +57,8 @@ public class DataInitializer implements CommandLineRunner {
             {"meetings", "analysis_status", "VARCHAR(20) DEFAULT 'pending'"},
             {"meetings", "quality_score", "INT DEFAULT 60"},
             {"meetings", "audio_duration", "INT"},
+            {"meetings", "asr_submit_attempts", "INT DEFAULT 0"},
+            {"meetings", "asr_submit_started_at", "DATETIME"},
             {"meeting_transcripts", "store_id", "VARCHAR(64)"},
             {"meeting_transcripts", "speaker_role", "VARCHAR(50)"},
             {"meeting_transcripts", "start_time", "DECIMAL(10,2)"},

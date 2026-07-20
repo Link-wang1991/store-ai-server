@@ -46,6 +46,14 @@ public class ProxyService {
             sql.append(" AND store_id = ?");
             params.add(cur.storeId());
         }
+        if ("users".equals(tbl) && cur != null) {
+            sql.append(" AND id = ?");
+            params.add(cur.userId());
+        }
+        if ("stores".equals(tbl) && cur != null) {
+            sql.append(" AND id = ?");
+            params.add(cur.storeId());
+        }
 
         // 按 id 查询
         if (id != null && !id.isEmpty()) {
@@ -79,12 +87,13 @@ public class ProxyService {
             sql.append(" ORDER BY ").append(order).append(" ").append(d);
         }
 
-        // 分页
+        // 分页（防止任意大查询占满连接池）
         sql.append(" LIMIT ? OFFSET ?");
-        params.add(limit);
-        params.add(offset);
+        params.add(Math.max(1, Math.min(limit, 500)));
+        params.add(Math.max(0, offset));
 
-        return jdbc.query(sql.toString(), params.toArray(), new ColumnMapRowMapper());
+        return jdbc.query(sql.toString(), params.toArray(), new ColumnMapRowMapper())
+                .stream().map(row -> redactSensitiveFields(tbl, row)).toList();
     }
 
     // ================================================================
@@ -93,6 +102,8 @@ public class ProxyService {
     public Map<String, Object> getById(String table, String id, CurrentUser cur) {
         String tbl = schema.validateTable(table);
         boolean hasStoreId = schema.hasStoreId(tbl);
+        if (cur != null && "users".equals(tbl) && !cur.userId().equals(id)) return null;
+        if (cur != null && "stores".equals(tbl) && !cur.storeId().equals(id)) return null;
 
         StringBuilder sql = new StringBuilder("SELECT * FROM ").append(tbl).append(" WHERE id = ?");
         List<Object> params = new ArrayList<>();
@@ -104,7 +115,7 @@ public class ProxyService {
         }
 
         var rows = jdbc.query(sql.toString(), params.toArray(), new ColumnMapRowMapper());
-        return rows.isEmpty() ? null : rows.get(0);
+        return rows.isEmpty() ? null : redactSensitiveFields(tbl, rows.get(0));
     }
 
     // ================================================================
@@ -113,32 +124,34 @@ public class ProxyService {
     public Map<String, Object> insert(String table, Map<String, Object> data, CurrentUser cur) {
         String tbl = schema.validateTable(table);
         boolean hasStoreId = schema.hasStoreId(tbl);
+        if ("users".equals(tbl)) throw BizException.forbidden("用户由认证接口管理");
+        Map<String, Object> safeData = writableData(tbl, data, true);
 
-        // 自动带 store_id
-        if (hasStoreId && cur != null && !data.containsKey("store_id")) {
-            data.put("store_id", cur.storeId());
+        // 调用方不能伪造所属门店。
+        if (hasStoreId && cur != null) {
+            safeData.put("store_id", cur.storeId());
         }
 
         // 生成 id（若无）
-        if (!data.containsKey("id")) {
-            data.put("id", UUID.randomUUID().toString().replace("-", ""));
+        if (!safeData.containsKey("id")) {
+            safeData.put("id", UUID.randomUUID().toString().replace("-", ""));
         }
 
         // 时间戳
         String now = new java.sql.Timestamp(System.currentTimeMillis()).toString();
-        if (!data.containsKey("created_at")) data.put("created_at", now);
-        if (!data.containsKey("updated_at")) data.put("updated_at", now);
+        if (!safeData.containsKey("created_at")) safeData.put("created_at", now);
+        if (!safeData.containsKey("updated_at")) safeData.put("updated_at", now);
 
         // 构建 INSERT
-        var keys = new ArrayList<>(data.keySet());
+        var keys = new ArrayList<>(safeData.keySet());
         String cols = String.join(", ", keys);
         String vals = keys.stream().map(k -> "?").collect(Collectors.joining(", "));
-        var params = keys.stream().map(data::get).collect(Collectors.toList());
+        var params = keys.stream().map(safeData::get).collect(Collectors.toList());
 
         jdbc.update("INSERT INTO " + tbl + " (" + cols + ") VALUES (" + vals + ")", params.toArray());
 
         // 返回插入的行
-        Map<String, Object> result = new HashMap<>(data);
+        Map<String, Object> result = new HashMap<>(safeData);
         return result;
     }
 
@@ -148,13 +161,17 @@ public class ProxyService {
     public void update(String table, String id, Map<String, Object> data, CurrentUser cur) {
         String tbl = schema.validateTable(table);
         boolean hasStoreId = schema.hasStoreId(tbl);
+        if ("users".equals(tbl)) throw BizException.forbidden("用户由认证接口管理");
+        if ("stores".equals(tbl) && cur != null && !cur.storeId().equals(id)) throw BizException.forbidden();
+        Map<String, Object> safeData = writableData(tbl, data, false);
+        if (safeData.isEmpty()) throw BizException.badRequest("没有可更新的字段");
 
         // 时间戳
-        data.put("updated_at", new java.sql.Timestamp(System.currentTimeMillis()).toString());
+        safeData.put("updated_at", new java.sql.Timestamp(System.currentTimeMillis()).toString());
 
-        var keys = new ArrayList<>(data.keySet());
+        var keys = new ArrayList<>(safeData.keySet());
         String sets = keys.stream().map(k -> k + " = ?").collect(Collectors.joining(", "));
-        var params = keys.stream().map(data::get).collect(Collectors.toList());
+        var params = keys.stream().map(safeData::get).collect(Collectors.toList());
 
         StringBuilder sql = new StringBuilder("UPDATE " + tbl + " SET " + sets + " WHERE id = ?");
         params.add(id);
@@ -174,6 +191,7 @@ public class ProxyService {
     public void delete(String table, String id, CurrentUser cur) {
         String tbl = schema.validateTable(table);
         boolean hasStoreId = schema.hasStoreId(tbl);
+        if ("users".equals(tbl) || "stores".equals(tbl)) throw BizException.forbidden("该记录不允许通过数据代理删除");
 
         StringBuilder sql = new StringBuilder("DELETE FROM " + tbl + " WHERE id = ?");
         List<Object> params = new ArrayList<>();
@@ -193,9 +211,29 @@ public class ProxyService {
     // ================================================================
     private List<String> parseSelect(String select, String table) {
         if ("*".equals(select.trim())) return List.of("*");
-        return Arrays.stream(select.split(","))
+        List<String> fields = Arrays.stream(select.split(","))
                 .map(String::trim)
                 .filter(f -> schema.isValidColumn(table, f))
                 .collect(Collectors.toList());
+        if (fields.isEmpty()) throw BizException.badRequest("没有可查询的字段");
+        return fields;
+    }
+
+    private Map<String, Object> writableData(String table, Map<String, Object> data, boolean inserting) {
+        Map<String, Object> safe = new LinkedHashMap<>();
+        if (data == null) return safe;
+        data.forEach((key, value) -> {
+            if (!schema.isValidColumn(table, key)) return;
+            if (!inserting && ("id".equals(key) || "store_id".equals(key) || "created_at".equals(key))) return;
+            safe.put(key, value);
+        });
+        return safe;
+    }
+
+    private Map<String, Object> redactSensitiveFields(String table, Map<String, Object> row) {
+        if (!"users".equals(table)) return row;
+        Map<String, Object> safe = new LinkedHashMap<>(row);
+        safe.remove("password_hash");
+        return safe;
     }
 }

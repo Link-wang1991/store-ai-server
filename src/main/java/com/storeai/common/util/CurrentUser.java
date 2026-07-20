@@ -32,6 +32,10 @@ public class CurrentUser {
         return get().getRole();
     }
 
+    public String email() {
+        return get().getEmail();
+    }
+
     public boolean isAdmin() {
         String r = role();
         return "owner".equals(r) || "manager".equals(r);

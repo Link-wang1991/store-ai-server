@@ -17,6 +17,9 @@ Thumbs.db
 # Logs
 *.log
 
-# Env
+# Env (keep the committed .env.example only)
+.env
 .env.local
+.env.*
+!.env.example
 uploads/
