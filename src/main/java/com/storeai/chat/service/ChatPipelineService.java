@@ -8,7 +8,9 @@ import com.storeai.chat.entity.ChatMessage;
 import com.storeai.chat.entity.ChatSession;
 import com.storeai.chat.repository.ChatMessageRepository;
 import com.storeai.chat.repository.ChatSessionRepository;
+import com.storeai.common.exception.BizException;
 import com.storeai.common.util.CurrentUser;
+import com.storeai.customer.service.CustomerService;
 import com.storeai.customer.service.CustomerTimelineService;
 import com.storeai.knowledge.service.KnowledgeRetrieveService;
 import com.storeai.knowledge.service.KnowledgeService;
@@ -37,41 +39,83 @@ public class ChatPipelineService {
     private final KnowledgeService knowledgeService;
     private final CurrentUser cur;
     private final AiAdapter aiAdapter;
+    private final CustomerService customerService;
     private final CustomerTimelineService customerTimelineService;
     private final JdbcTemplate jdbc;
 
     public AnswerResult answer(String question, String sessionId, String customerId) {
-        // 1. 会话管理
+        String normalizedQuestion = question == null ? "" : question.trim();
+        if (normalizedQuestion.isBlank()) {
+            throw BizException.badRequest("问题不能为空");
+        }
+
+        String requestedCustomerId = normalizeCustomerId(customerId);
+
+        // 1. 会话与客户上下文管理。客户只在用户明确选择或入口显式传入时关联，
+        //    后续消息始终以会话已经绑定的 customer_id 为准，避免串到另一位客户。
         if (sessionId == null) {
+            if (requestedCustomerId != null) {
+                customerService.getById(requestedCustomerId);
+            }
             var s = new ChatSession();
             s.setStoreId(cur.storeId());
             s.setEmployeeId(cur.employeeId());
             s.setRole(cur.role());
-            s.setTitle(question.length() > 20 ? question.substring(0, 20) : question);
-            s.setCustomerId(customerId);
+            s.setTitle(normalizedQuestion.length() > 20 ? normalizedQuestion.substring(0, 20) : normalizedQuestion);
+            s.setCustomerId(requestedCustomerId);
             s.setCreatedAt(OffsetDateTime.now());
             s.setUpdatedAt(OffsetDateTime.now());
             sessionRepo.insert(s);
             sessionId = s.getId();
+            customerId = requestedCustomerId;
+        } else {
+            var session = sessionRepo.selectById(sessionId);
+            if (session == null) {
+                throw BizException.notFound("会话");
+            }
+            if (!cur.storeId().equals(session.getStoreId()) || !cur.employeeId().equals(session.getEmployeeId())) {
+                throw BizException.forbidden("无权继续此会话");
+            }
+
+            String boundCustomerId = normalizeCustomerId(session.getCustomerId());
+            if (boundCustomerId != null) {
+                if (requestedCustomerId != null && !boundCustomerId.equals(requestedCustomerId)) {
+                    throw BizException.badRequest("该会话已关联其他客户，请新建对话后再切换客户");
+                }
+                customerService.getById(boundCustomerId);
+                customerId = boundCustomerId;
+            } else if (requestedCustomerId != null) {
+                customerService.getById(requestedCustomerId);
+                session.setCustomerId(requestedCustomerId);
+                session.setUpdatedAt(OffsetDateTime.now());
+                sessionRepo.updateById(session);
+                customerId = requestedCustomerId;
+            } else {
+                customerId = null;
+            }
         }
 
         // 2. 问题分类 + 风险初判
-        var classification = RiskClassifier.classify(question);
+        var classification = RiskClassifier.classify(normalizedQuestion);
         var category = classification.category();
         var baseRisk = classification.baseRisk();
 
-        // 3. 标准答案优先匹配
-        String standardAnswer = findStandardAnswer(question);
-        if (standardAnswer != null) {
-            return saveAnswer(question, sessionId, customerId, category, "L1",
+        // 3. 标准答案优先匹配。通用模式可直接返回；客户模式把标准口径与客户画像
+        //    一同提供给模型，使话术仍能结合该客户的阶段与顾虑。
+        String standardAnswer = findStandardAnswer(normalizedQuestion);
+        if (standardAnswer != null && customerId == null) {
+            return saveAnswer(normalizedQuestion, sessionId, customerId, category, "L1",
                 "standard_answer", standardAnswer, List.of(), List.of());
         }
 
         // 4. 知识库检索（Bigram）
-        var chunks = knowledgeService.search(question, 5);
+        var chunks = knowledgeService.search(normalizedQuestion, 5);
         var chunkTexts = new ArrayList<String>();
         for (var c : chunks) {
             chunkTexts.add("【" + c.documentId() + "】" + c.content());
+        }
+        if (standardAnswer != null) {
+            chunkTexts.add(0, "【门店标准口径】" + standardAnswer);
         }
         boolean hasContext = !chunkTexts.isEmpty();
 
@@ -105,24 +149,28 @@ public class ChatPipelineService {
                 customerId != null
             ));
             var user = PromptBuilder.buildUser(new PromptBuilder.UserPromptOpts(
-                question, chunkTexts, List.of(), "", ""
+                normalizedQuestion, chunkTexts, List.of(), buildCustomerProfile(customerId), ""
             ));
             String aiAnswer = aiAdapter.call(system, user, null);
             if (aiAnswer != null) {
                 answer = aiAnswer;
             } else {
-                answer = hasContext
-                    ? buildKnowledgeAnswer(chunks, question)
-                    : buildGeneralAnswer(question);
+                answer = standardAnswer != null
+                    ? buildCustomerStandardAnswer(standardAnswer, customerId)
+                    : hasContext
+                    ? buildKnowledgeAnswer(chunks, normalizedQuestion)
+                    : buildGeneralAnswer(normalizedQuestion);
             }
         } else {
-            answer = hasContext
-                ? buildKnowledgeAnswer(chunks, question)
-                : buildGeneralAnswer(question);
+            answer = standardAnswer != null
+                ? buildCustomerStandardAnswer(standardAnswer, customerId)
+                : hasContext
+                ? buildKnowledgeAnswer(chunks, normalizedQuestion)
+                : buildGeneralAnswer(normalizedQuestion);
         }
 
         // 7. 合规检查（禁用词）
-        boolean isInternal = question.matches(".*(排班|上班|几点|班次|休息|通知|培训|制度).*");
+        boolean isInternal = normalizedQuestion.matches(".*(排班|上班|几点|班次|休息|通知|培训|制度).*");
         var checkResult = ComplianceChecker.check(answer, List.of(), isInternal);
         answer = checkResult.text();
         var bannedHit = checkResult.hits();
@@ -132,8 +180,67 @@ public class ChatPipelineService {
             answer += "\n\n⚠️ 提醒：若涉及具体价格/折扣/退款/活动政策，最终以店长/老板确认为准。";
         }
 
-        return saveAnswer(question, sessionId, customerId, category, riskLevel, answerType,
+        return saveAnswer(normalizedQuestion, sessionId, customerId, category, riskLevel, answerType,
             answer, chunks, bannedHit);
+    }
+
+    private String normalizeCustomerId(String customerId) {
+        if (customerId == null || customerId.isBlank()) return null;
+        return customerId.trim();
+    }
+
+    private String buildCustomerProfile(String customerId) {
+        if (customerId == null) return "";
+
+        try {
+            var customer = jdbc.queryForMap(
+                "SELECT name, stage, concerns, portrait, last_active_at, next_follow_at " +
+                    "FROM customers WHERE id = ? AND store_id = ?",
+                customerId, cur.storeId());
+            var profile = new StringBuilder();
+            profile.append("客户 ID：").append(customerId).append("\n")
+                .append("姓名：").append(customer.getOrDefault("name", "")).append("\n")
+                .append("当前阶段：").append(customer.getOrDefault("stage", "未记录")).append("\n")
+                .append("已知顾虑：").append(customer.getOrDefault("concerns", "未记录")).append("\n")
+                .append("最近活跃：").append(customer.getOrDefault("last_active_at", "未记录")).append("\n")
+                .append("下次跟进：").append(customer.getOrDefault("next_follow_at", "未记录")).append("\n")
+                .append("客户画像：").append(customer.getOrDefault("portrait", "未记录")).append("\n");
+
+            var memories = jdbc.queryForList(
+                "SELECT `key`, value, confidence FROM memory_items " +
+                    "WHERE store_id = ? AND customer_id = ? ORDER BY created_at DESC LIMIT 6",
+                cur.storeId(), customerId);
+            if (!memories.isEmpty()) {
+                profile.append("近期客户记忆：\n");
+                for (var memory : memories) {
+                    profile.append("- ").append(memory.get("key")).append("：")
+                        .append(memory.get("value")).append("（可信度：")
+                        .append(memory.get("confidence")).append("）\n");
+                }
+            }
+            return profile.toString();
+        } catch (Exception e) {
+            log.warn("读取客户上下文失败，继续按通用模式回答: customerId={}", customerId);
+            return "";
+        }
+    }
+
+    private String buildCustomerStandardAnswer(String standardAnswer, String customerId) {
+        if (customerId == null) return standardAnswer;
+        try {
+            var customer = jdbc.queryForMap(
+                "SELECT name, stage, concerns FROM customers WHERE id = ? AND store_id = ?",
+                customerId, cur.storeId());
+            String name = String.valueOf(customer.getOrDefault("name", "该客户"));
+            String stage = String.valueOf(customer.getOrDefault("stage", "当前阶段未记录"));
+            String concerns = String.valueOf(customer.getOrDefault("concerns", "暂无明确顾虑"));
+            return "（已针对客户「" + name + "」生成：当前阶段「" + stage + "」，重点关注「" + concerns + "」）\n\n"
+                + standardAnswer
+                + "\n\n**跟进提醒**：请结合该客户当前阶段和顾虑确认下一步，再发送具体话术。";
+        } catch (Exception e) {
+            log.warn("读取客户标准答案上下文失败: customerId={}", customerId);
+            return standardAnswer;
+        }
     }
 
     private String findStandardAnswer(String question) {

@@ -21,10 +21,13 @@ public class CustomerService {
     private final org.springframework.jdbc.core.JdbcTemplate jdbc;
     private final CustomerTimelineService customerTimelineService;
 
-    /** 返回全店客户（会谈页面需按分配人拆分显示） */
+    /** 管理角色可看全店，其他员工只看到自己负责的客户。 */
     public List<Customer> listByScope() {
         var qw = new LambdaQueryWrapper<Customer>()
                 .eq(Customer::getStoreId, cur.storeId());
+        if (!cur.isAdmin()) {
+            qw.eq(Customer::getAssignedTo, cur.employeeId());
+        }
         qw.orderByDesc(Customer::getUpdatedAt);
         return customerRepo.selectList(qw);
     }

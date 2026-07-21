@@ -140,7 +140,7 @@ public class ProxyService {
         // 时间戳
         String now = new java.sql.Timestamp(System.currentTimeMillis()).toString();
         if (!safeData.containsKey("created_at")) safeData.put("created_at", now);
-        if (!safeData.containsKey("updated_at")) safeData.put("updated_at", now);
+        if (schema.hasUpdatedAt(tbl) && !safeData.containsKey("updated_at")) safeData.put("updated_at", now);
 
         // 构建 INSERT
         var keys = new ArrayList<>(safeData.keySet());
@@ -167,7 +167,9 @@ public class ProxyService {
         if (safeData.isEmpty()) throw BizException.badRequest("没有可更新的字段");
 
         // 时间戳
-        safeData.put("updated_at", new java.sql.Timestamp(System.currentTimeMillis()).toString());
+        if (schema.hasUpdatedAt(tbl)) {
+            safeData.put("updated_at", new java.sql.Timestamp(System.currentTimeMillis()).toString());
+        }
 
         var keys = new ArrayList<>(safeData.keySet());
         String sets = keys.stream().map(k -> k + " = ?").collect(Collectors.joining(", "));

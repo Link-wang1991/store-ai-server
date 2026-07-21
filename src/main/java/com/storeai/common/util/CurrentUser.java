@@ -38,7 +38,7 @@ public class CurrentUser {
 
     public boolean isAdmin() {
         String r = role();
-        return "owner".equals(r) || "manager".equals(r);
+        return "owner".equals(r) || "manager".equals(r) || "admin".equals(r);
     }
 
     public boolean isOwner() {

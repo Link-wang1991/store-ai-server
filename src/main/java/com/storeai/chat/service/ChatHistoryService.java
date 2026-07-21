@@ -23,10 +23,11 @@ public class ChatHistoryService {
 
     public List<SessionItem> listSessions() {
         var wrapper = new LambdaQueryWrapper<ChatSession>()
+                .eq(ChatSession::getStoreId, cur.storeId())
                 .eq(ChatSession::getEmployeeId, cur.employeeId())
                 .orderByDesc(ChatSession::getUpdatedAt);
         return sessionRepo.selectList(wrapper).stream()
-                .map(s -> new SessionItem(s.getId(), s.getTitle()))
+                .map(s -> new SessionItem(s.getId(), s.getTitle(), s.getCustomerId()))
                 .toList();
     }
 
@@ -34,6 +35,9 @@ public class ChatHistoryService {
         var session = sessionRepo.selectById(sessionId);
         if (session == null) {
             throw BizException.badRequest("会话不存在");
+        }
+        if (!cur.storeId().equals(session.getStoreId())) {
+            throw BizException.notFound("会话");
         }
         if (!cur.employeeId().equals(session.getEmployeeId()) && !cur.isAdmin()) {
             throw BizException.forbidden("无权查看该会话");
@@ -66,13 +70,16 @@ public class ChatHistoryService {
         if (session == null) {
             throw BizException.badRequest("会话不存在");
         }
+        if (!cur.storeId().equals(session.getStoreId())) {
+            throw BizException.notFound("会话");
+        }
         if (!cur.employeeId().equals(session.getEmployeeId()) && !cur.isAdmin()) {
             throw BizException.forbidden("无权删除该会话");
         }
         sessionRepo.deleteById(sessionId);
     }
 
-    public record SessionItem(String id, String title) {}
+    public record SessionItem(String id, String title, String customerId) {}
 
     public record ChatMessageItem(
             String id,

@@ -41,6 +41,9 @@ public class TableSchema {
         "service_projects", "campaigns", "schedules"
     );
 
+    // 消息记录是只追加表，只有 created_at，没有 updated_at。
+    private static final Set<String> TABLES_WITHOUT_UPDATED_AT = Set.of("chat_messages");
+
     /** 校验并返回规范化的表名 */
     public String validateTable(String table) {
         String t = table.toLowerCase().trim();
@@ -53,6 +56,10 @@ public class TableSchema {
     /** 该表是否有多门店隔离 */
     public boolean hasStoreId(String table) {
         return TABLES_WITH_STORE_ID.contains(table);
+    }
+
+    public boolean hasUpdatedAt(String table) {
+        return !TABLES_WITHOUT_UPDATED_AT.contains(table);
     }
 
     /** 列名校验（仅检查合法性，不做全量白名单） */
