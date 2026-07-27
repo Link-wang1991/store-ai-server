@@ -26,12 +26,17 @@ public class JwtUtil {
     }
 
     public String generateToken(UserDetailsImpl userDetails, Map<String, Object> extraClaims) {
+        return generateToken(userDetails, extraClaims, expiration);
+    }
+
+    /** 为本机免密体验等短期会话签发独立时长的令牌，不能沿用七天正式登录时长。 */
+    public String generateToken(UserDetailsImpl userDetails, Map<String, Object> extraClaims, long expiresInMillis) {
         Date now = new Date();
         return Jwts.builder()
                 .claims(extraClaims)
                 .subject(userDetails.getUsername())
                 .issuedAt(now)
-                .expiration(new Date(now.getTime() + expiration))
+                .expiration(new Date(now.getTime() + expiresInMillis))
                 .signWith(key)
                 .compact();
     }

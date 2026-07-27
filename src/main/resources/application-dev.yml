@@ -4,6 +4,11 @@ spring:
     outOfOrder: true
     validate-on-migrate: false
 
+app:
+  demo:
+    # 只有显式使用 dev profile 时才生成演示账号/客户。
+    seed-on-start: true
+
 logging:
   level:
     com.storeai: DEBUG

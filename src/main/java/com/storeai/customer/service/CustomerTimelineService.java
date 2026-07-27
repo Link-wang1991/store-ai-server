@@ -23,11 +23,17 @@ public class CustomerTimelineService {
 
     public void addInteraction(String customerId, String type, String content) {
         if (customerId == null || customerId.isBlank()) return;
+        addInteraction(cur.storeId(), customerId, cur.employeeId(), type, content);
+    }
+
+    /** 会谈后台任务没有 HTTP 登录上下文时使用，仍显式保持门店与员工归属。 */
+    public void addInteraction(String storeId, String customerId, String employeeId, String type, String content) {
+        if (storeId == null || storeId.isBlank() || customerId == null || customerId.isBlank()) return;
         jdbc.update(
             "INSERT INTO interactions (id, store_id, customer_id, employee_id, type, content, created_at) " +
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            UUID.randomUUID().toString().replace("-", ""), cur.storeId(), customerId,
-            cur.employeeId(), type, content, OffsetDateTime.now().toString());
+            UUID.randomUUID().toString().replace("-", ""), storeId, customerId,
+            employeeId, type, content, OffsetDateTime.now().toString());
     }
 
     public List<Map<String, Object>> getTimeline(String customerId) {

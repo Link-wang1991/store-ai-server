@@ -22,6 +22,7 @@ public class ChatMessage {
     private String answerType;      // knowledge / general / need_confirm / risk
     private String riskLevel;       // L1 / L2 / L3 / L4
     private String retrievedChunks; // JSON
+    private String methodologySources; // JSON，系统销售方法论来源
     private Boolean needsReview;
     private String customerId;
     private OffsetDateTime createdAt;

@@ -42,9 +42,16 @@ jwt:
   secret: ${JWT_SECRET}
   expiration: ${JWT_EXPIRATION:604800000}
 
+# 免密角色体验默认关闭。仅本机 local profile 可显式打开，且永不应在公网部署中开启。
+app:
+  local-preview-login:
+    enabled: ${LOCAL_PREVIEW_LOGIN_ENABLED:false}
+    owner-email: ${LOCAL_PREVIEW_OWNER_EMAIL:owner@demo.com}
+
 storage:
   provider: ${STORAGE_PROVIDER:local}
   local-path: ${STORAGE_LOCAL_PATH:./uploads/meeting-audio}
+  knowledge-local-path: ${STORAGE_KNOWLEDGE_LOCAL_PATH:./uploads/knowledge}
 
 minio:
   endpoint: ${MINIO_ENDPOINT:http://localhost:9000}

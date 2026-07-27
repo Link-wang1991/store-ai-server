@@ -17,12 +17,23 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
+import java.util.List;
 
 @Tag(name = "认证")
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
 public class AuthController {
+
+    private static final Map<String, String> ROLE_LABELS = Map.of(
+        "owner", "老板",
+        "admin", "管理员",
+        "manager", "店长",
+        "consultant", "咨询师",
+        "beautician", "美容师",
+        "receptionist", "前台",
+        "operator", "运营"
+    );
 
     private final AuthService authService;
     private final CurrentUser currentUser;
@@ -32,6 +43,18 @@ public class AuthController {
     @PostMapping("/login")
     public ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest req) {
         return ApiResponse.ok(authService.login(req));
+    }
+
+    /** 仅 local profile 开启的免密角色体验入口，见 application-local.yml。 */
+    @GetMapping("/local-preview-accounts")
+    public ApiResponse<List<AuthService.LocalPreviewAccount>> localPreviewAccounts() {
+        return ApiResponse.ok(authService.listLocalPreviewAccounts());
+    }
+
+    /** 仅 local profile 开启的免密角色体验入口，签发四小时短时令牌。 */
+    @PostMapping("/local-preview-login")
+    public ApiResponse<LoginResponse> localPreviewLogin(@RequestBody LocalPreviewLoginRequest req) {
+        return ApiResponse.ok(authService.localPreviewLogin(req.employeeId()));
     }
 
     @PostMapping("/register")
@@ -52,10 +75,16 @@ public class AuthController {
                 "employeeId", currentUser.employeeId(),
                 "storeId", currentUser.storeId(),
                 "role", currentUser.role(),
-                "roleLabel", currentUser.role(),
+                "roleLabel", roleLabel(currentUser.role()),
                 "email", currentUser.email() == null ? "" : currentUser.email(),
                 "name", employee != null && employee.getName() != null ? employee.getName() : "",
                 "storeName", store != null && store.getName() != null ? store.getName() : ""
         ));
     }
+
+    private static String roleLabel(String role) {
+        return ROLE_LABELS.getOrDefault(role, role == null ? "" : role);
+    }
+
+    public record LocalPreviewLoginRequest(String employeeId) {}
 }

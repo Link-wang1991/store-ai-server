@@ -22,6 +22,12 @@ public class KnowledgeDocument {
     private String remark;
     private String fileUrl;
     private String fileType;
+    /** 内容来源，审核沉淀的内容可回溯到原会谈和分析。 */
+    private String sourceType;
+    private String sourceId;
+    private String sourceMeetingId;
+    private String reviewedBy;
+    private OffsetDateTime reviewedAt;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
 }

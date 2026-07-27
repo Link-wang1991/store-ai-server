@@ -98,6 +98,10 @@ public class MeetingController {
         result.put("transcript_status", m.getTranscriptStatus());
         result.put("fail_reason", m.getFailReason());
         result.put("analysis_status", m.getAnalysisStatus());
+        result.put("action_review_status", m.getActionReviewStatus());
+        result.put("closure_status", m.getClosureStatus());
+        result.put("closure_attempts", m.getClosureAttempts());
+        result.put("closure_error", m.getClosureError());
         result.put("duration", m.getDuration());
         result.put("audio_duration", m.getAudioDuration());
         result.put("employee_name", m.getEmployeeName());
@@ -299,6 +303,7 @@ public class MeetingController {
             UPDATE meetings
             SET status = 'queued', transcript_status = 'pending', asr_task_id = NULL,
                 asr_submit_attempts = 0, asr_submit_started_at = NULL,
+                asr_poll_failures = 0, asr_last_polled_at = NULL,
                 fail_reason = NULL, updated_at = NOW()
             WHERE id = ?
             """, id);
@@ -325,6 +330,8 @@ public class MeetingController {
     }
 
     public record CreateMeetingRequest(String customerId, String customerName, String scene) {}
+    public record ActionReconciliationRequest(String decision) {}
+    public record SpeakerRoleRequest(String role) {}
 
     /**
      * 获取原始会谈录音。录音为私有业务数据，必须先通过会谈归属校验。
@@ -400,7 +407,7 @@ public class MeetingController {
     public ApiResponse<List<Map<String, Object>>> getAnalysis(@PathVariable String id) {
         requireAccessibleMeeting(id);
         var rows = jdbc.queryForList(
-            "SELECT * FROM meeting_analysis WHERE meeting_id = ? ORDER BY created_at DESC LIMIT 1",
+            "SELECT * FROM meeting_analysis WHERE meeting_id = ? ORDER BY updated_at DESC, created_at DESC LIMIT 1",
             id
         );
         return ApiResponse.ok(rows);
@@ -415,6 +422,90 @@ public class MeetingController {
             id
         );
         return ApiResponse.ok(rows);
+    }
+
+    /**
+     * 修订一条逐句转写：原始 ASR 原文保留在 original_content，content 保存人工修订版。
+     * 修订不会默默改写既有业务任务；前端会明确提示用户决定是否用修订版重新分析。
+     */
+    @PatchMapping("/{id}/transcripts/{transcriptId}")
+    public ApiResponse<Map<String, Object>> updateTranscript(
+            @PathVariable String id, @PathVariable String transcriptId,
+            @RequestBody Map<String, Object> body) {
+        Meeting meeting = requireAccessibleMeeting(id);
+        String content = String.valueOf(body.getOrDefault("content", "")).trim();
+        if (content.isBlank()) throw BizException.badRequest("转写内容不能为空");
+        if (content.length() > 4_000) throw BizException.badRequest("单句转写不能超过 4000 字");
+
+        int updated = jdbc.update("""
+            UPDATE meeting_transcripts
+            SET content = ?, edited_by = ?, edited_at = NOW(), updated_at = NOW()
+            WHERE id = ? AND meeting_id = ? AND store_id = ?
+            """, content, cur.employeeId(), transcriptId, id, meeting.getStoreId());
+        if (updated != 1) throw BizException.notFound("转写句子");
+
+        jdbc.update("""
+            UPDATE meetings
+            SET analysis_status = 'needs_reanalysis', updated_at = NOW()
+            WHERE id = ? AND store_id = ?
+            """, id, meeting.getStoreId());
+        return ApiResponse.ok(Map.of("status", "needs_reanalysis", "message", "已保存修订，请确认后重新分析"));
+    }
+
+    /** 手工确认同一说话人身份；标注会在下一次分析中优先于启发式推断。 */
+    @PatchMapping("/{id}/speakers/{speaker}")
+    public ApiResponse<Map<String, Object>> updateSpeakerRole(
+            @PathVariable String id, @PathVariable String speaker,
+            @RequestBody SpeakerRoleRequest req) {
+        Meeting meeting = requireAccessibleMeeting(id);
+        String role = req.role() == null ? "" : req.role().trim();
+        if (!Set.of("employee", "customer", "manager", "other", "").contains(role)) {
+            throw BizException.badRequest("说话人角色不正确");
+        }
+        int updated = jdbc.update("""
+            UPDATE meeting_transcripts SET speaker_role = ?, updated_at = NOW()
+            WHERE meeting_id = ? AND store_id = ? AND speaker = ?
+            """, role.isBlank() ? null : role, id, meeting.getStoreId(), speaker);
+        if (updated == 0) throw BizException.notFound("说话人");
+        jdbc.update("""
+            UPDATE meetings SET analysis_status = 'needs_reanalysis', updated_at = NOW()
+            WHERE id = ? AND store_id = ?
+            """, id, meeting.getStoreId());
+        return ApiResponse.ok(Map.of("status", "needs_reanalysis", "updated", updated));
+    }
+
+    /** 使用人工修订后的逐句原文重跑报告；既有跟进和审核任务不会被自动重复创建。 */
+    @PostMapping("/{id}/reanalyze")
+    public ApiResponse<Map<String, Object>> reanalyze(@PathVariable String id) {
+        Meeting meeting = requireAccessibleMeeting(id);
+        Integer transcriptCount = jdbc.queryForObject(
+            "SELECT COUNT(*) FROM meeting_transcripts WHERE meeting_id = ? AND store_id = ?",
+            Integer.class, id, meeting.getStoreId());
+        if (transcriptCount == null || transcriptCount == 0) throw BizException.badRequest("没有可重新分析的逐句转写");
+        jdbc.update("""
+            UPDATE meetings
+            SET status = 'analyzing', analysis_status = 'reprocessing', fail_reason = NULL, updated_at = NOW()
+            WHERE id = ? AND store_id = ?
+            """, id, meeting.getStoreId());
+        return ApiResponse.ok(Map.of("status", "analyzing"));
+    }
+
+    /**
+     * 人工修订转写后，明确决定是否将新报告的跟进建议应用到既有业务动作。
+     * 重新分析本身绝不静默覆盖任务或客户跟进时间。
+     */
+    @PostMapping("/{id}/action-reconciliation")
+    public ApiResponse<Map<String, Object>> reconcileAction(
+            @PathVariable String id, @RequestBody ActionReconciliationRequest req) {
+        requireAccessibleMeeting(id);
+        return ApiResponse.ok(analysisService.reconcileFollowupAction(id, req.decision(), cur.employeeId()));
+    }
+
+    /** 分析报告已存在但业务动作局部失败时，只重试闭环，不重复提交语音或重跑 AI。 */
+    @PostMapping("/{id}/retry-closure")
+    public ApiResponse<Map<String, Object>> retryClosure(@PathVariable String id) {
+        requireAccessibleMeeting(id);
+        return ApiResponse.ok(analysisService.retryClosure(id));
     }
 
     /** 获取门店咨询场景列表（可配置，后端 store_config 表维护） */

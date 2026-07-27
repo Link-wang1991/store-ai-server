@@ -14,10 +14,12 @@ import com.storeai.customer.service.CustomerService;
 import com.storeai.customer.service.CustomerTimelineService;
 import com.storeai.knowledge.service.KnowledgeRetrieveService;
 import com.storeai.knowledge.service.KnowledgeService;
+import com.storeai.knowledge.service.SystemPlaybookService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -37,11 +39,15 @@ public class ChatPipelineService {
     private final ChatSessionRepository sessionRepo;
     private final ChatMessageRepository messageRepo;
     private final KnowledgeService knowledgeService;
+    private final SystemPlaybookService systemPlaybookService;
     private final CurrentUser cur;
     private final AiAdapter aiAdapter;
     private final CustomerService customerService;
     private final CustomerTimelineService customerTimelineService;
     private final JdbcTemplate jdbc;
+    private final ObjectMapper mapper = new ObjectMapper();
+
+    private static final List<String> FEEDBACK_TYPES = List.of("已接受", "已预约", "仍有顾虑", "信息有误", "需要升级");
 
     public AnswerResult answer(String question, String sessionId, String customerId) {
         String normalizedQuestion = question == null ? "" : question.trim();
@@ -100,24 +106,24 @@ public class ChatPipelineService {
         var category = classification.category();
         var baseRisk = classification.baseRisk();
 
-        // 3. 标准答案优先匹配。通用模式可直接返回；客户模式把标准口径与客户画像
-        //    一同提供给模型，使话术仍能结合该客户的阶段与顾虑。
+        // 3. 门店标准答案优先匹配。它不再短路整条回答链路：AI 教练仍要把门店口径、
+        //    客户上下文和系统销售方法论放在一起判断，且门店口径优先级最高。
         String standardAnswer = findStandardAnswer(normalizedQuestion);
-        if (standardAnswer != null && customerId == null) {
-            return saveAnswer(normalizedQuestion, sessionId, customerId, category, "L1",
-                "standard_answer", standardAnswer, List.of(), List.of());
-        }
 
-        // 4. 知识库检索（Bigram）
+        // 4. 双来源检索：门店知识库是本店事实与口径；系统方法论是通用销售专业能力。
+        //    两者分别保存和展示，避免把后者误呈现为本店制度。
         var chunks = knowledgeService.search(normalizedQuestion, 5);
+        var playbooks = systemPlaybookService.search(normalizedQuestion, cur.role(), 3);
         var chunkTexts = new ArrayList<String>();
         for (var c : chunks) {
-            chunkTexts.add("【" + c.documentId() + "】" + c.content());
+            chunkTexts.add("【" + c.documentTitle() + "】" + c.content());
         }
         if (standardAnswer != null) {
             chunkTexts.add(0, "【门店标准口径】" + standardAnswer);
         }
-        boolean hasContext = !chunkTexts.isEmpty();
+        var playbookTexts = playbooks.stream().map(item -> "《" + item.title() + "》"
+            + "（模块：" + item.category() + "；来源：" + item.source() + "）\n" + item.content()).toList();
+        boolean hasContext = !chunkTexts.isEmpty() || !playbooks.isEmpty();
 
         // 5. 定级+回答类型
         String answerType;
@@ -146,27 +152,20 @@ public class ChatPipelineService {
                 cur.role(),
                 cur.role(),  // roleLabel - 暂无自定义角色名
                 List.of(),
-                customerId != null
+                false // 对话页只输出待员工确认的下一步建议，不在无确认时自动写入业务数据。
             ));
+            String context = buildCustomerProfile(customerId) + buildConversationHistory(sessionId);
             var user = PromptBuilder.buildUser(new PromptBuilder.UserPromptOpts(
-                normalizedQuestion, chunkTexts, List.of(), buildCustomerProfile(customerId), ""
+                normalizedQuestion, chunkTexts, playbookTexts, context, ""
             ));
             String aiAnswer = aiAdapter.call(system, user, null);
             if (aiAnswer != null) {
                 answer = aiAnswer;
             } else {
-                answer = standardAnswer != null
-                    ? buildCustomerStandardAnswer(standardAnswer, customerId)
-                    : hasContext
-                    ? buildKnowledgeAnswer(chunks, normalizedQuestion)
-                    : buildGeneralAnswer(normalizedQuestion);
+                answer = buildFallbackAnswer(standardAnswer, customerId, chunks, playbooks, normalizedQuestion);
             }
         } else {
-            answer = standardAnswer != null
-                ? buildCustomerStandardAnswer(standardAnswer, customerId)
-                : hasContext
-                ? buildKnowledgeAnswer(chunks, normalizedQuestion)
-                : buildGeneralAnswer(normalizedQuestion);
+            answer = buildFallbackAnswer(standardAnswer, customerId, chunks, playbooks, normalizedQuestion);
         }
 
         // 7. 合规检查（禁用词）
@@ -181,7 +180,7 @@ public class ChatPipelineService {
         }
 
         return saveAnswer(normalizedQuestion, sessionId, customerId, category, riskLevel, answerType,
-            answer, chunks, bannedHit);
+            answer, chunks, playbooks, bannedHit);
     }
 
     private String normalizeCustomerId(String customerId) {
@@ -208,7 +207,7 @@ public class ChatPipelineService {
 
             var memories = jdbc.queryForList(
                 "SELECT `key`, value, confidence FROM memory_items " +
-                    "WHERE store_id = ? AND customer_id = ? ORDER BY created_at DESC LIMIT 6",
+                    "WHERE store_id = ? AND customer_id = ? AND (status IS NULL OR status = 'confirmed') ORDER BY created_at DESC LIMIT 12",
                 cur.storeId(), customerId);
             if (!memories.isEmpty()) {
                 profile.append("近期客户记忆：\n");
@@ -218,10 +217,136 @@ public class ChatPipelineService {
                         .append(memory.get("confidence")).append("）\n");
                 }
             }
+            var meetings = jdbc.queryForList("""
+                SELECT ma.summary, ma.explicit_needs, ma.decision_barriers, ma.followup_goal, m.ended_at
+                FROM meeting_analysis ma
+                JOIN meetings m ON m.id = ma.meeting_id
+                WHERE ma.store_id = ? AND m.customer_id = ?
+                ORDER BY ma.created_at DESC
+                LIMIT 5
+                """, cur.storeId(), customerId);
+            if (!meetings.isEmpty()) {
+                profile.append("最近会谈复盘：\n");
+                for (var meeting : meetings) {
+                    profile.append("- 摘要：").append(meeting.getOrDefault("summary", "未记录"))
+                        .append("；需求：").append(meeting.getOrDefault("explicit_needs", "未记录"))
+                        .append("；阻碍：").append(meeting.getOrDefault("decision_barriers", "未记录"))
+                        .append("；下一步：").append(meeting.getOrDefault("followup_goal", "未记录"))
+                        .append("\n");
+                }
+            }
+            var openTasks = jdbc.queryForList("""
+                SELECT title, content, type, status, due_at
+                FROM tasks
+                WHERE store_id = ? AND customer_id = ?
+                  AND status IN ('todo', 'doing')
+                  AND (? = 1 OR assigned_to = ?)
+                ORDER BY due_at ASC, created_at DESC
+                LIMIT 8
+                """, cur.storeId(), customerId, cur.isAdmin() ? 1 : 0, cur.employeeId());
+            if (!openTasks.isEmpty()) {
+                profile.append("待执行事项（避免重复承诺）：\n");
+                for (var task : openTasks) {
+                    profile.append("- ").append(shortText(task.get("title"), 120))
+                        .append("；状态：").append(task.getOrDefault("status", "todo"))
+                        .append("；截止：").append(task.getOrDefault("due_at", "未设"))
+                        .append("；内容：").append(shortText(task.get("content"), 180)).append("\n");
+                }
+            }
+            var interactions = jdbc.queryForList("""
+                SELECT type, content, created_at FROM interactions
+                WHERE store_id = ? AND customer_id = ?
+                ORDER BY created_at DESC LIMIT 8
+                """, cur.storeId(), customerId);
+            if (!interactions.isEmpty()) {
+                profile.append("最近客户互动：\n");
+                for (var interaction : interactions) {
+                    profile.append("- ").append(interaction.getOrDefault("created_at", ""))
+                        .append(" · ").append(interaction.getOrDefault("type", "互动"))
+                        .append("：").append(shortText(interaction.get("content"), 180)).append("\n");
+                }
+            }
             return profile.toString();
         } catch (Exception e) {
             log.warn("读取客户上下文失败，继续按通用模式回答: customerId={}", customerId);
             return "";
+        }
+    }
+
+    /** 将当前会话最近的问答明确传入模型，避免每轮都像第一次提问。 */
+    private String buildConversationHistory(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) return "";
+        try {
+            var rows = jdbc.queryForList("""
+                SELECT content, ai_response FROM chat_messages
+                WHERE session_id = ? AND store_id = ?
+                ORDER BY created_at DESC
+                LIMIT 6
+                """, sessionId, cur.storeId());
+            if (rows.isEmpty()) return "";
+            var history = new StringBuilder("\n最近对话（延续上下文，不要重复追问已确认内容）：\n");
+            for (int i = rows.size() - 1; i >= 0; i--) {
+                var row = rows.get(i);
+                history.append("- 员工：").append(shortText(row.get("content"), 320)).append("\n")
+                    .append("  教练：").append(shortText(row.get("ai_response"), 520)).append("\n");
+            }
+            return history.toString();
+        } catch (Exception e) {
+            log.warn("读取会话上下文失败: session={}", sessionId);
+            return "";
+        }
+    }
+
+    private String shortText(Object value, int max) {
+        String text = value == null ? "" : String.valueOf(value).replaceAll("\\s+", " ").trim();
+        return text.length() <= max ? text : text.substring(0, max) + "…";
+    }
+
+    /** 保存员工对一条 AI 建议的采纳/异议结果；该结果是可追溯业务数据，不存浏览器临时状态。 */
+    public FeedbackResult recordFeedback(String messageId, String feedbackType, String comment) {
+        if (messageId == null || messageId.isBlank()) throw BizException.badRequest("缺少回答标识");
+        if (!FEEDBACK_TYPES.contains(feedbackType)) throw BizException.badRequest("不支持的反馈类型");
+        ChatMessage message = messageRepo.selectById(messageId);
+        if (message == null || !cur.storeId().equals(message.getStoreId()) || !cur.employeeId().equals(message.getEmployeeId())) {
+            throw BizException.notFound("AI 回答");
+        }
+        boolean helpful = "已接受".equals(feedbackType) || "已预约".equals(feedbackType);
+        String note = comment == null ? "" : comment.trim();
+        if (note.length() > 1_000) note = note.substring(0, 1_000);
+        jdbc.update("""
+            INSERT INTO ai_feedback (id, store_id, employee_id, message_id, customer_id, feedback_type, is_helpful, comment, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+            ON DUPLICATE KEY UPDATE feedback_type = VALUES(feedback_type), is_helpful = VALUES(is_helpful),
+                comment = VALUES(comment), customer_id = VALUES(customer_id), updated_at = NOW()
+            """, UUID.randomUUID().toString().replace("-", ""), cur.storeId(), cur.employeeId(), messageId,
+            message.getCustomerId(), feedbackType, helpful ? 1 : 0, note);
+        if (message.getCustomerId() != null && !message.getCustomerId().isBlank()) {
+            customerTimelineService.addInteraction(message.getCustomerId(), "ai_coach_feedback",
+                "员工对 AI 教练建议的反馈：" + feedbackType + (note.isBlank() ? "" : "；补充：" + note));
+        }
+        // 负向反馈不是只留一条浏览器提示，而是进入门店的知识缺口审核池。
+        // 使用 message_id 去重，因此员工修改同一条反馈时只更新反馈本身，不会反复堆积待审项。
+        if (!helpful) recordKnowledgeGapFromFeedback(message, feedbackType, note);
+        return new FeedbackResult(feedbackType, helpful);
+    }
+
+    private void recordKnowledgeGapFromFeedback(ChatMessage message, String feedbackType, String note) {
+        try {
+            Integer exists = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM knowledge_gaps
+                WHERE store_id = ? AND source_type = 'ai_feedback' AND source_id = ?
+                """, Integer.class, cur.storeId(), message.getId());
+            if (exists != null && exists > 0) return;
+            String question = "AI 教练回答待复核【" + feedbackType + "】："
+                + shortText(message.getContent(), 300)
+                + (note.isBlank() ? "" : "；员工反馈：" + note);
+            jdbc.update("""
+                INSERT INTO knowledge_gaps (id, store_id, employee_id, question, status, source_type, source_id, created_at)
+                VALUES (?, ?, ?, ?, 'pending', 'ai_feedback', ?, NOW())
+                """, UUID.randomUUID().toString().replace("-", ""), cur.storeId(), cur.employeeId(), question, message.getId());
+        } catch (Exception e) {
+            // 反馈本身已经持久化，知识缺口的补充动作失败不能让员工误以为反馈没有记录。
+            log.warn("AI 反馈未能写入知识缺口审核池: message={}, reason={}", message.getId(), e.getMessage());
         }
     }
 
@@ -263,6 +388,7 @@ public class ChatPipelineService {
                                     String category, String riskLevel, String answerType,
                                     String answer,
                                     List<KnowledgeRetrieveService.RetrievedChunk> chunks,
+                                    List<SystemPlaybookService.PlaybookReference> playbooks,
                                     List<String> bannedHit) {
         var msg = new ChatMessage();
         msg.setStoreId(cur.storeId());
@@ -275,6 +401,16 @@ public class ChatPipelineService {
         msg.setAnswerType(answerType);
         msg.setRiskLevel(riskLevel);
         msg.setCustomerId(customerId);
+        try {
+            msg.setRetrievedChunks(mapper.writeValueAsString(chunks.stream()
+                .map(c -> new RetrievedInfo(c.id(), c.documentTitle(), c.content().substring(0, Math.min(180, c.content().length()))))
+                .toList()));
+        } catch (Exception ignored) { }
+        try {
+            msg.setMethodologySources(mapper.writeValueAsString(playbooks.stream()
+                .map(item -> new MethodologyInfo(item.id(), item.scenarioKey(), item.title(), item.category(), item.source()))
+                .toList()));
+        } catch (Exception ignored) { }
         msg.setCreatedAt(OffsetDateTime.now());
         messageRepo.insert(msg);
 
@@ -290,13 +426,50 @@ public class ChatPipelineService {
         }
 
         List<RetrievedInfo> retrieved = chunks.stream()
-            .map(c -> new RetrievedInfo(c.id(), c.content().substring(0, Math.min(100, c.content().length()))))
+            .map(c -> new RetrievedInfo(c.id(), c.documentTitle(), c.content().substring(0, Math.min(100, c.content().length()))))
+            .toList();
+        List<MethodologyInfo> methodology = playbooks.stream()
+            .map(item -> new MethodologyInfo(item.id(), item.scenarioKey(), item.title(), item.category(), item.source()))
             .toList();
 
         return new AnswerResult(
             sessionId, msg.getId(), answer, category,
-            riskLevel, answerType, retrieved, bannedHit
+            riskLevel, answerType, retrieved, methodology, bannedHit
         );
+    }
+
+    /** 模型服务临时不可用时仍展示清楚的双来源依据，避免降级成没有说明的通用答案。 */
+    private String buildFallbackAnswer(String standardAnswer, String customerId,
+                                       List<KnowledgeRetrieveService.RetrievedChunk> chunks,
+                                       List<SystemPlaybookService.PlaybookReference> playbooks,
+                                       String question) {
+        if (standardAnswer != null) return buildCustomerStandardAnswer(standardAnswer, customerId)
+            + methodologyReminder(playbooks);
+        if (!chunks.isEmpty()) return buildKnowledgeAnswer(chunks, question) + methodologyReminder(playbooks);
+        if (!playbooks.isEmpty()) return buildMethodologyAnswer(playbooks);
+        return buildGeneralAnswer(question);
+    }
+
+    private String methodologyReminder(List<SystemPlaybookService.PlaybookReference> playbooks) {
+        if (playbooks == null || playbooks.isEmpty()) return "";
+        String names = playbooks.stream().map(SystemPlaybookService.PlaybookReference::title)
+            .filter(name -> name != null && !name.isBlank()).limit(2).reduce((a, b) -> a + "、" + b).orElse("");
+        return "\n\n**销售方法参考**：本次同时参考了系统销售方法论" + (names.isBlank() ? "。" : "《" + names + "》。")
+            + "它只用于沟通和决策策略，不替代本店价格、服务或合规口径。";
+    }
+
+    private String buildMethodologyAnswer(List<SystemPlaybookService.PlaybookReference> playbooks) {
+        var sb = new StringBuilder("（当前未命中本店专属资料，以下为系统销售方法论建议；价格、活动和服务细则请以门店确认口径为准）\n\n");
+        for (int i = 0; i < Math.min(2, playbooks.size()); i++) {
+            var item = playbooks.get(i);
+            String content = item.content().replaceAll("\\s+", " ").trim();
+            sb.append("**方法").append(i + 1).append("：《").append(item.title()).append("》**\n")
+                .append(content.substring(0, Math.min(220, content.length())))
+                .append("\n");
+        }
+        sb.append("\n**下一步动作**：先用开放问题确认客户真正顾虑，再按门店已确认口径给出选择。\n")
+            .append("**是否需要升级**：如涉及价格让步、效果承诺、投诉或安全风险，需升级店长。\n");
+        return sb.toString();
     }
 
     // --- 回答模板 ---
@@ -349,8 +522,13 @@ public class ChatPipelineService {
         String riskLevel,
         String answerType,
         List<RetrievedInfo> retrieved,
+        List<MethodologyInfo> methodology,
         List<String> bannedHit
     ) {}
 
-    public record RetrievedInfo(String chunkId, String snippet) {}
+    public record RetrievedInfo(String chunkId, String documentTitle, String snippet) {}
+
+    public record MethodologyInfo(String id, String scenarioKey, String title, String module, String source) {}
+
+    public record FeedbackResult(String feedbackType, boolean helpful) {}
 }

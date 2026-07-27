@@ -98,6 +98,8 @@ public class MeetingTranscriptionService {
                 transcript_status = 'submitting',
                 asr_submit_attempts = COALESCE(asr_submit_attempts, 0) + 1,
                 asr_submit_started_at = NOW(),
+                asr_poll_failures = 0,
+                asr_last_polled_at = NULL,
                 fail_reason = NULL,
                 updated_at = NOW()
             WHERE id = ?
@@ -140,6 +142,8 @@ public class MeetingTranscriptionService {
                 SET status = 'transcribing',
                     transcript_status = 'transcribing',
                     asr_task_id = ?,
+                    asr_poll_failures = 0,
+                    asr_last_polled_at = NULL,
                     fail_reason = NULL,
                     updated_at = NOW()
                 WHERE id = ?
@@ -248,6 +252,8 @@ public class MeetingTranscriptionService {
             UPDATE meetings
             SET status = 'queued',
                 transcript_status = 'pending',
+                asr_poll_failures = 0,
+                asr_last_polled_at = NULL,
                 fail_reason = ?,
                 updated_at = NOW()
             WHERE id = ?

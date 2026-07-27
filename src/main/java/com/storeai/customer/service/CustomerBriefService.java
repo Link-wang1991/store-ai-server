@@ -35,7 +35,7 @@ public class CustomerBriefService {
 
         List<Map<String, Object>> memories = jdbc.queryForList(
             "SELECT `key`, value, confidence, created_at FROM memory_items " +
-            "WHERE customer_id = ? AND store_id = ? ORDER BY created_at DESC LIMIT 20", customerId, cur.storeId());
+            "WHERE customer_id = ? AND store_id = ? AND (status IS NULL OR status = 'confirmed') ORDER BY created_at DESC LIMIT 20", customerId, cur.storeId());
 
         Map<String, Object> latestMeeting = querySingle(
             "SELECT m.*, ma.summary, ma.explicit_needs, ma.implicit_needs, ma.emotional_needs, " +

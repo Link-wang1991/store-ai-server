@@ -2,6 +2,7 @@ package com.storeai.ai;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.storeai.common.net.DirectProxySelector;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -47,6 +48,9 @@ public class AiAdapter {
         this.qwenModel = qwenModel;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
+                // 本机 Clash/VPN 代理曾中断 DashScope TLS。ASR 与向量服务均已直连，
+                // 文本模型也必须走同一策略，否则会谈会长时间卡在“AI 分析中”。
+                .proxy(DirectProxySelector.INSTANCE)
                 .build();
         this.mapper = new ObjectMapper();
     }

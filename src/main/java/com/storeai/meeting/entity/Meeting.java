@@ -25,6 +25,12 @@ public class Meeting {
     private String transcriptStatus;
     private String failReason;
     private String analysisStatus;
+    /** 人工修订转写后，新的跟进行动是否仍待员工确认。 */
+    private String actionReviewStatus;
+    /** 会谈分析后的任务/记忆/审核闭环状态：pending / processing / completed / partial_failed。 */
+    private String closureStatus;
+    private Integer closureAttempts;
+    private String closureError;
     private Integer qualityScore;
     private Integer audioDuration;
     private OffsetDateTime endedAt;

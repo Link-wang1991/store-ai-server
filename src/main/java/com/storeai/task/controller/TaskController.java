@@ -56,6 +56,12 @@ public class TaskController {
         if (t == null || !cur.storeId().equals(t.getStoreId())) {
             throw BizException.notFound("任务");
         }
+        if (!cur.isAdmin() && !cur.employeeId().equals(t.getAssignedTo())) {
+            throw BizException.forbidden("只有任务负责人可以更新任务状态");
+        }
+        if (!List.of("todo", "doing", "canceled").contains(status)) {
+            throw BizException.badRequest("任务状态只能更新为 todo、doing 或 canceled；完成请提交任务结果");
+        }
         t.setStatus(status);
         t.setUpdatedAt(OffsetDateTime.now());
         taskRepo.updateById(t);

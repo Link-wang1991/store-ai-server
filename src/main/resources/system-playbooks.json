@@ -1,0 +1,1476 @@
+[
+  {
+    "scenario_key": "price_objection",
+    "module": "销售成交",
+    "title": "客户嫌贵",
+    "scene": "客户了解项目后说「太贵了」「别家更便宜」，开始犹豫或想走。",
+    "customer_psychology": "不是真嫌贵，而是没看到与价格匹配的价值，或在为「值不值」找确认。",
+    "common_mistakes": "立刻降价、急着报底价、贬低同行、反复强调便宜。",
+    "strategy": "先认同情绪，再把价格锚到效果与安全上，用门店真实案例建立价值，给低门槛体验台阶。",
+    "scripts": "「理解您，护肤确实要选适合自己的。咱们这个是进口仪器+一对一方案，6 次下来含水量和屏障能明显改善。您可以先 99 元体验一次，感受到效果再决定，好吗？」",
+    "follow_up_questions": "您之前做过类似项目吗？最在意的是效果还是价格？预算大概在什么范围？",
+    "next_action": "给体验价台阶 + 约下次到店时间；记录客户价格顾虑标签。",
+    "risk_note": "不得承诺疗效、不得私自突破底价（涉及价格让步要升级店长）。",
+    "source": "价格异议处理；价值锚定（嫌贵=价值未达或信任未建）",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "intent"
+    ]
+  },
+  {
+    "scenario_key": "think_about_it",
+    "module": "销售成交",
+    "title": "客户说考虑一下",
+    "scene": "客户没有明确拒绝，但说「我再考虑考虑」「回去想想」。",
+    "customer_psychology": "「考虑一下」通常是有未说出口的顾虑（钱、效果、信任、决策权）。",
+    "common_mistakes": "直接放走、追着逼单、说「今天不定就没优惠了」施压。",
+    "strategy": "温和锁定真实顾虑，把模糊的「考虑」具体化，给一个低压力的下一步。",
+    "scripts": "「当然，重要的决定是要想清楚。我想确认下，是担心效果，还是预算、时间上不太方便？我帮您理清楚，您回去也好判断。」",
+    "follow_up_questions": "主要是哪方面还没想好？如果这点解决了，您会愿意试吗？",
+    "next_action": "约定具体回访时间（如 3 天后），并记录顾虑点。",
+    "risk_note": "不施压、不虚构稀缺；承诺的优惠要真实可兑现。",
+    "source": "异议处理·模糊拒绝具象化；承诺一致原理",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "intent"
+    ]
+  },
+  {
+    "scenario_key": "loss_aversion",
+    "module": "消费者心理",
+    "title": "损失厌恶",
+    "scene": "客户对「得到」无感，但对「失去」敏感，适合活动收尾、限时权益。",
+    "customer_psychology": "失去带来的痛感约是得到的两倍，客户更怕错过已属于自己的东西。",
+    "common_mistakes": "一味强调「买了能得到什么」，忽略「不做会失去什么」。",
+    "strategy": "把权益描述成「已经为您保留/即将失效」，让客户感到不行动是一种损失（须真实）。",
+    "scripts": "「这个体验名额我先帮您留到本周末，过了活动就恢复原价了，挺可惜的。您看周几方便？」",
+    "follow_up_questions": "这周还是下周方便？需要我先帮您锁定名额吗？",
+    "next_action": "锁定名额/权益并明确截止时间，加微信跟进。",
+    "risk_note": "稀缺与时限必须真实，禁止虚假限时、虚假名额。",
+    "source": "损失厌恶（Kahneman & Tversky 前景理论, 1979）",
+    "applicable_roles": [
+      "consultant",
+      "receptionist"
+    ],
+    "applicable_stages": [
+      "intent",
+      "churn_risk"
+    ]
+  },
+  {
+    "scenario_key": "anchoring",
+    "module": "消费者心理",
+    "title": "锚定效应",
+    "scene": "客户对价格没有概念，需要一个参照来判断贵不贵。",
+    "customer_psychology": "人靠对比判断价值，第一个看到的价格会成为心理锚点。",
+    "common_mistakes": "上来只报最低价，导致后续任何项目都显得贵。",
+    "strategy": "先呈现高价值/高价位方案做锚，再给主推方案，让主推显得划算。",
+    "scripts": "「咱们高端的光子嫩肤是 1280 一次，这套补水修复套餐 6 次才 2980，平均下来很划算，也最适合您现在的屏障问题。」",
+    "follow_up_questions": "您更看重立竿见影还是长期养护？",
+    "next_action": "用套餐对比引导到主推项目，记录客户关注点。",
+    "risk_note": "对比要基于真实价目，不得编造原价。",
+    "source": "锚定效应（Tversky & Kahneman, 1974, Science）；零售三档定价实践",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "intent"
+    ]
+  },
+  {
+    "scenario_key": "price_sensitive_type",
+    "module": "客户分型",
+    "title": "价格敏感型客户",
+    "scene": "反复问价格、比价、关注优惠和赠品的客户。",
+    "customer_psychology": "怕吃亏、要占到便宜的确定感，需要安全感而非最低价。",
+    "common_mistakes": "只拼低价、忽略价值，结果利润低且不忠诚。",
+    "strategy": "用体验装/新客价降低门槛，用赠品和确定效果给赚到的感觉，再逐步带高客单。",
+    "scripts": "「您是会过日子的人，咱们新客体验价就是给第一次的您准备的，先感受效果，划不划算您自己说了算。」",
+    "follow_up_questions": "您平时做护肤预算大概多少？更在意单次便宜还是长期划算？",
+    "next_action": "先成交体验单 → 服务中铺垫疗程价值 → 记录价格敏感标签。",
+    "risk_note": "不得承诺赠品后又不兑现。",
+    "source": "心理账户（Thaler）；价格敏感型购买动机",
+    "applicable_roles": [
+      "consultant",
+      "receptionist"
+    ],
+    "applicable_stages": [
+      "new",
+      "intent"
+    ]
+  },
+  {
+    "scenario_key": "hesitant_type",
+    "module": "客户分型",
+    "title": "犹豫不决型客户",
+    "scene": "什么都说挺好，但迟迟不做决定，反复纠结。",
+    "customer_psychology": "怕做错决定、缺乏信任、需要有人帮她拍板。",
+    "common_mistakes": "给太多选项让她更纠结，或强推让她逃跑。",
+    "strategy": "减少选项（二选一），用专业建议帮她收敛决策，给安全的小步骤。",
+    "scripts": "「根据您的皮肤，我最推荐补水修复。咱们先做一次体验，您不用现在就定疗程，体验完不满意完全可以不办，这样最稳妥。」",
+    "follow_up_questions": "如果只选一个最想解决的问题，是补水还是提亮？",
+    "next_action": "二选一收敛 + 低风险体验单，约定到店。",
+    "risk_note": "不替客户做超出其意愿的承诺。",
+    "source": "选择过载/决策瘫痪（Iyengar & Lepper, 2000）；风险规避",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "intent"
+    ]
+  },
+  {
+    "scenario_key": "first_visit",
+    "module": "服务体验",
+    "title": "新客首次到店接待",
+    "scene": "新客第一次进店，决定她对门店的第一印象与信任。",
+    "customer_psychology": "陌生、戒备、怕被推销，希望被尊重和专业对待。",
+    "common_mistakes": "一上来就推卡、问太多隐私、冷落客户。",
+    "strategy": "先建立舒适感与专业感：环境引导→需求倾听→专业建议，把成交放到信任之后。",
+    "scripts": "「第一次来先别急着做决定，我先帮您看看皮肤状态，给您一些日常建议，合适咱们再聊项目。」",
+    "follow_up_questions": "您今天主要想了解哪方面？平时护肤习惯是怎样的？",
+    "next_action": "建立客户档案（来源/需求/性格底色），24 小时内安排回访。",
+    "risk_note": "不过度承诺、不泄露其他客户隐私。",
+    "source": "首因效应；信任建立先于成交（顾问式销售）",
+    "applicable_roles": [
+      "consultant",
+      "receptionist"
+    ],
+    "applicable_stages": [
+      "new"
+    ]
+  },
+  {
+    "scenario_key": "after_service_care",
+    "module": "服务体验",
+    "title": "服务后关怀",
+    "scene": "客户做完项目离店后，黄金 48 小时内的关怀。",
+    "customer_psychology": "希望被记住、被在意，关怀到位会显著提升复购与口碑。",
+    "common_mistakes": "做完就不管、回访像群发、只想着再卖。",
+    "strategy": "先关心感受与注意事项，再自然带出下次养护节奏，体现专业与用心。",
+    "scripts": "「姐，今天补水做完皮肤感觉怎么样？这两天注意多补水防晒、别用太刺激的产品。有任何不适随时找我。」",
+    "follow_up_questions": "皮肤有没有泛红或不适？日常护肤需要我帮您搭配吗？",
+    "next_action": "记录服务反馈；按项目周期约下次；异常立即升级。",
+    "risk_note": "若客户反馈红肿/过敏/不适，禁止判断为正常或排毒，立即升级。",
+    "source": "峰终定律·结尾关怀（Kahneman）；服务后回访留存实践",
+    "applicable_roles": [
+      "consultant",
+      "beautician"
+    ],
+    "applicable_stages": [
+      "deal",
+      "regular"
+    ]
+  },
+  {
+    "scenario_key": "dormant_reactivation",
+    "module": "老客复购",
+    "title": "沉默老客唤醒",
+    "scene": "30/60/90 天未到店的老客，需要重新激活。",
+    "customer_psychology": "可能淡忘、可能去了别家、也可能在等一个回来的理由。",
+    "common_mistakes": "直接群发广告、一上来就推销、让客户觉得只想赚她钱。",
+    "strategy": "以关心和专属权益切入，给为你准备的理由，而非促销轰炸。",
+    "scripts": "「姐好久没见您啦，最近皮肤状态怎么样？换季正是养护关键期，我给您留了个老客专属补水名额，想您了，回来我帮您看看。」",
+    "follow_up_questions": "最近皮肤有没有新的困扰？这周还是下周方便回来？",
+    "next_action": "生成老客唤醒回访任务，附专属权益；记录唤醒结果。",
+    "risk_note": "权益须真实；尊重客户，避免高频骚扰。",
+    "source": "心理账户重置；关系营销·客户激活（先关系后消费）",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "regular",
+      "churn_risk"
+    ]
+  },
+  {
+    "scenario_key": "repurchase_upsell",
+    "module": "老客复购",
+    "title": "老客复购升级",
+    "scene": "效果满意的老客，适合从单项升级到疗程/会员/搭配项目。",
+    "customer_psychology": "已有信任，愿意为更好的效果投入，但不喜欢被硬推。",
+    "common_mistakes": "频繁推高价、不看实际需求乱搭配。",
+    "strategy": "基于已见效果，顺势提出进阶方案，用巩固加提升的逻辑而非再买。",
+    "scripts": "「您这几次补水做下来屏障稳定多了，接下来如果配合提亮，整体气色会更好。要不要我帮您搭一个组合方案？」",
+    "follow_up_questions": "您对现在的效果满意吗？还想再改善哪一块？",
+    "next_action": "给出组合/会员方案；记录复购机会标签。",
+    "risk_note": "按真实皮肤需求推荐，不过度销售。",
+    "source": "信任递进与复购；顺势升级（基于已见效果）",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "regular"
+    ]
+  },
+  {
+    "scenario_key": "campaign_invite",
+    "module": "活动转化",
+    "title": "活动邀约",
+    "scene": "门店有主推活动，需要把客户邀约到店参与。",
+    "customer_psychology": "怕是套路、怕被强推，但对真正划算且适合自己的会心动。",
+    "common_mistakes": "群发活动链接、只讲价格不讲适合、不给明确到店理由。",
+    "strategy": "把活动与客户具体需求挂钩，给明确时间与名额，降低到店门槛。",
+    "scripts": "「姐，这次补水季正好适合您之前说的换季干燥问题，新客体验只要 99，名额不多。您周几方便我帮您约上？」",
+    "follow_up_questions": "您这周哪天方便？需要我帮您把名额先留着吗？",
+    "next_action": "约定到店时间，建回访任务跟进确认。",
+    "risk_note": "活动规则、名额、价格须与门店活动一致，禁止夸大。",
+    "source": "需求-活动匹配；稀缺与紧迫（真实名额, Cialdini）",
+    "applicable_roles": [
+      "consultant",
+      "receptionist"
+    ],
+    "applicable_stages": [
+      "intent",
+      "regular",
+      "churn_risk"
+    ]
+  },
+  {
+    "scenario_key": "unclosed_followup",
+    "module": "活动转化",
+    "title": "未成交客户跟进",
+    "scene": "到店或咨询后未成交的客户，按 1/3/7 天节奏跟进。",
+    "customer_psychology": "还在比较或观望，需要被记得和一个回来的台阶。",
+    "common_mistakes": "一次没成就放弃，或每天追问让客户反感。",
+    "strategy": "分节奏、给价值（不是催成交），每次提供一个新的小理由。",
+    "scripts": "（第3天）「姐，上次聊的补水方案我又帮您想了下，针对您的干燥其实可以先从体验开始，压力小。这周要不要来试试？」",
+    "follow_up_questions": "上次还有哪点没考虑好？我能帮您解决吗？",
+    "next_action": "按 1/3/7 天建多条回访任务；记录未成交原因。",
+    "risk_note": "节奏适度，避免骚扰；不虚构优惠。",
+    "source": "跟进节奏与触点；价值先行（非催单）",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "intent"
+    ]
+  },
+  {
+    "scenario_key": "no_wechat_reply",
+    "module": "行为设计与跟进",
+    "title": "客户不回微信",
+    "scene": "加了微信但客户不回复，跟进陷入沉默。",
+    "customer_psychology": "可能忙、可能没兴趣、也可能不想被推销。",
+    "common_mistakes": "连续追问、群发广告、用「在吗」开头。",
+    "strategy": "换内容形式（有用信息/真实案例/单选问题），降低回复成本，给价值而非索取。",
+    "scripts": "「姐不打扰您，给您发个换季护肤小提醒：最近干燥重点是补水+防晒。有需要随时找我，不回也没关系～」",
+    "follow_up_questions": "（用单选降低门槛）您最近皮肤是偏干还是偏油？",
+    "next_action": "改为低频价值触达；3 次无回应转长期培育标签。",
+    "risk_note": "尊重客户，避免高频骚扰造成拉黑。",
+    "source": "触点营销·降低回复成本；价值触达非索取",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "intent",
+      "churn_risk"
+    ]
+  },
+  {
+    "scenario_key": "followup_cadence",
+    "module": "行为设计与跟进",
+    "title": "跟进节奏设计",
+    "scene": "员工不知道什么时候、隔多久跟进客户。",
+    "customer_psychology": "太频繁会烦，太久会忘，需要恰到好处的存在感。",
+    "common_mistakes": "想起来才跟、全凭感觉、无记录导致漏跟或重复跟。",
+    "strategy": "按客户阶段设标准节奏：新客24h、体验后第3天、未成交1/3/7天、老客30/60/90天。",
+    "scripts": "（管理提醒）今天有 X 位客户到跟进时间，建议优先跟进高意向和体验后第3天的客户。",
+    "follow_up_questions": "这位客户上次沟通到哪一步？她的顾虑解决了吗？",
+    "next_action": "为每位客户建立带时间的回访任务，按节奏执行。",
+    "risk_note": "—",
+    "source": "跟进节奏标准化；存在感曲线（不过频不遗忘）",
+    "applicable_roles": [
+      "consultant",
+      "manager"
+    ],
+    "applicable_stages": [
+      "new",
+      "intent",
+      "regular"
+    ]
+  },
+  {
+    "scenario_key": "efficacy_boundary",
+    "module": "合规风险",
+    "title": "疗效承诺边界",
+    "scene": "客户追问能不能根治、保证有效吗、多久见效。",
+    "customer_psychology": "想要确定性，怕花钱没效果。",
+    "common_mistakes": "为成交说一定有效、根治、永久、无风险等违规绝对化表达。",
+    "strategy": "用客观、审慎的表达管理预期：讲机理、讲多数人改善、讲个体差异，绝不打包票。",
+    "scripts": "「每个人肤质不同，多数客户在 6 次后含水量和屏障有明显改善。我不会跟您打包票，但会用最适合您的方案，帮您看到真实变化。」",
+    "follow_up_questions": "您最希望先改善哪个具体问题？",
+    "next_action": "客观沟通 + 记录预期；涉及医疗判断升级专业负责人。",
+    "risk_note": "严禁根治/永久/保证有效/一次见效/无风险等表达，违规需拦截。",
+    "source": "《广告法》禁绝对化用语；医美疗效承诺红线",
+    "applicable_roles": [
+      "consultant",
+      "beautician",
+      "receptionist",
+      "manager",
+      "owner"
+    ],
+    "applicable_stages": [
+      "new",
+      "intent"
+    ]
+  },
+  {
+    "scenario_key": "skin_abnormal_escalation",
+    "module": "合规风险",
+    "title": "皮肤异常/术后不适升级",
+    "scene": "客户反馈红肿、过敏、灼热、术后不适等异常。",
+    "customer_psychology": "担心、焦虑，需要被认真对待和专业处理。",
+    "common_mistakes": "自行判断为正常或排毒、隔空诊断、安抚后不上报。",
+    "strategy": "先安抚、停止可能刺激的操作，立即升级给店长/专业负责人，必要时建议就医，不做医疗诊断。",
+    "scripts": "「您的情况我非常重视，我马上请我们专业负责人来跟您对接处理。如果有明显不适，建议尽快就医，安全第一。」",
+    "follow_up_questions": "（仅了解情况，不做诊断）大概什么时候开始的？现在有没有加重？",
+    "next_action": "立即升级，写入风险记录，专人跟进闭环。",
+    "risk_note": "最高优先级：不诊断、不承诺、不拖延，必须升级。",
+    "source": "非医疗机构不得诊疗；不良反应处置与转诊规范",
+    "applicable_roles": [
+      "consultant",
+      "beautician",
+      "receptionist",
+      "manager",
+      "owner"
+    ],
+    "applicable_stages": [
+      "deal",
+      "regular"
+    ]
+  },
+  {
+    "scenario_key": "value_shaping",
+    "module": "销售成交",
+    "title": "价值塑造（讲清为什么值）",
+    "scene": "客户觉得项目和别家差不多，凭什么卖这个价。",
+    "customer_psychology": "看不到差异点，只能用价格做唯一判断标准。",
+    "common_mistakes": "只报参数、堆术语，或直接说「我们就是好」却讲不出所以然。",
+    "strategy": "用「问题—方案—结果」三段把价值讲到客户身上：先点她的具体困扰，再讲方案如何针对，最后讲她能得到的改变。",
+    "scripts": "「您主要是屏障受损、一换季就泛红。咱们这套是先修复屏障再补水，跟单纯补水不一样，做完您出门不容易再泛红，化妆也服帖。」",
+    "follow_up_questions": "您最想解决的是泛红、干燥还是暗沉？以前做过的项目为什么没坚持？",
+    "next_action": "把方案与客户具体问题绑定，记录她最在意的结果。",
+    "risk_note": "讲机理可以，禁止承诺一定有效或具体到「几次根治」。",
+    "source": "FAB 特征-优势-利益；价值主张（顾问式销售）",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "intent"
+    ]
+  },
+  {
+    "scenario_key": "urgency_close",
+    "module": "销售成交",
+    "title": "临门一脚促成交",
+    "scene": "客户基本认可，但还在「要不要今天定」之间。",
+    "customer_psychology": "已经心动，差一个行动的理由和一点推力。",
+    "common_mistakes": "继续讲产品（话太多反而冷场）、或用假优惠硬逼。",
+    "strategy": "停止介绍，转入「假设成交」：直接帮她安排，把决定简化成确认时间这一个动作。",
+    "scripts": "「那咱们就先从体验开始，您看是今天先做一次，还是我帮您约这周六下午？」",
+    "follow_up_questions": "今天方便先体验，还是约个您更从容的时间？",
+    "next_action": "二选一约定到店时间，立刻落到日历/回访。",
+    "risk_note": "不得虚构限时优惠施压；尊重客户最终决定。",
+    "source": "假设成交法 Assumptive Close；二择一收尾",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "intent"
+    ]
+  },
+  {
+    "scenario_key": "package_vs_single",
+    "module": "销售成交",
+    "title": "疗程与单次的引导",
+    "scene": "客户只想做单次，店里更希望成交疗程。",
+    "customer_psychology": "怕一次性投入大、怕效果不好被套牢。",
+    "common_mistakes": "硬推疗程、贬低单次、让客户觉得被算计。",
+    "strategy": "先认可单次体验的合理性，用「效果是积累出来的」讲清疗程逻辑，给「先体验满意再升疗程」的安全路径。",
+    "scripts": "「先做一次体验完全可以。只是补水修复是靠周期累积的，单次效果维持短。您先体验，满意了我再帮您算疗程怎么最划算，不满意也不勉强。」",
+    "follow_up_questions": "您更担心的是效果还是一次投入太多？",
+    "next_action": "成交体验单，服务中铺垫疗程价值，记录意向。",
+    "risk_note": "不夸大疗程效果，疗程价格变动需符合门店规则。",
+    "source": "心理账户分摊（Thaler）；疗程价值积累",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "intent",
+      "deal"
+    ]
+  },
+  {
+    "scenario_key": "competitor_compare",
+    "module": "销售成交",
+    "title": "客户拿别家对比",
+    "scene": "客户说「别家更便宜/送得多/也有这个项目」。",
+    "customer_psychology": "在为决定找参照，潜台词是「你给我个选你的理由」。",
+    "common_mistakes": "贬低同行、急于降价、显得心虚。",
+    "strategy": "不评价对方，把焦点拉回到「适不适合你」和门店的确定性优势（方案、仪器、售后、案例）。",
+    "scripts": "「每家各有特色，关键看适不适合您。咱们的优势是一对一定方案+做完有专人跟踪，万一有任何不适随时找得到人，这点对皮肤项目挺重要的。」",
+    "follow_up_questions": "您对比下来，最看重的是价格、效果还是后续服务？",
+    "next_action": "突出差异化与售后保障，记录客户决策关注点。",
+    "risk_note": "不诋毁同行、不虚构对方缺点。",
+    "source": "差异化定位（Trout & Ries）；异议处理不贬低同行",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "intent"
+    ]
+  },
+  {
+    "scenario_key": "silent_customer",
+    "module": "销售成交",
+    "title": "全程不表态的客户",
+    "scene": "客户只听不说，问也不太回应，难以判断意向。",
+    "customer_psychology": "可能在观察、防推销，也可能不好意思拒绝。",
+    "common_mistakes": "自顾自一直讲、或因尴尬草草收场。",
+    "strategy": "把单向介绍换成开放提问和选择题，给她低压力表达的出口，观察她在哪个点有反应。",
+    "scripts": "「我不急着给您推荐。您今天来主要是想改善哪块，或者就是先随便看看？都没关系。」",
+    "follow_up_questions": "您是先了解下，还是有具体想解决的问题？",
+    "next_action": "用问题探需求，先留微信，给低门槛下一步。",
+    "risk_note": "不强行逼问隐私，尊重沉默。",
+    "source": "SPIN 开放/选择式提问挖需求（Rackham）",
+    "applicable_roles": [
+      "consultant",
+      "receptionist"
+    ],
+    "applicable_stages": [
+      "new",
+      "intent"
+    ]
+  },
+  {
+    "scenario_key": "bring_companion",
+    "module": "销售成交",
+    "title": "客户带同伴一起来",
+    "scene": "客户带朋友/家人到店，同伴意见影响决策。",
+    "customer_psychology": "同伴是「保护伞」，客户会参考她的态度。",
+    "common_mistakes": "只顾客户冷落同伴，或被同伴负面带偏。",
+    "strategy": "把同伴拉成同盟：尊重她、让她参与判断，争取她替你说话。",
+    "scripts": "「您闺蜜眼光真好。您觉得她适合补水还是提亮？有您把关她也更放心。」",
+    "follow_up_questions": "（问同伴）您平时也保养吗？您觉得她最该先改善哪点？",
+    "next_action": "争取同伴认同，必要时给「两人同行」合理权益。",
+    "risk_note": "权益须真实；不泄露客户隐私给同伴。",
+    "source": "社会认同 + 群体决策影响（Cialdini《影响力》）",
+    "applicable_roles": [
+      "consultant",
+      "receptionist"
+    ],
+    "applicable_stages": [
+      "intent"
+    ]
+  },
+  {
+    "scenario_key": "social_proof",
+    "module": "消费者心理",
+    "title": "从众与社会认同",
+    "scene": "客户拿不准，看别人怎么选会更安心。",
+    "customer_psychology": "「大家都选的」=安全、不会错。",
+    "common_mistakes": "编造销量、虚构好评，或泛泛说「很多人做」没有细节。",
+    "strategy": "用真实、具体、可信的他人选择来佐证（同类客户、真实案例），细节越具体越可信。",
+    "scripts": "「跟您情况差不多的客户，好几位都是先做补水修复这套，她们反馈最明显的是泛红少了。要不要我给您看看（已脱敏的）反馈？」",
+    "follow_up_questions": "您更想看跟您年龄相近的，还是同样问题的案例？",
+    "next_action": "展示真实脱敏案例，记录客户共鸣点。",
+    "risk_note": "禁止编造销量/好评；展示案例须脱敏、获授权。",
+    "source": "社会认同原理（Cialdini《影响力》）；Asch 从众实验",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "intent"
+    ]
+  },
+  {
+    "scenario_key": "authority_trust",
+    "module": "消费者心理",
+    "title": "权威与专业背书",
+    "scene": "客户对效果和安全存疑，需要专业可信感。",
+    "customer_psychology": "更愿意相信「专业的人」和「正规的东西」。",
+    "common_mistakes": "夸大资质、虚构头衔，或专业话讲得太满变成承诺。",
+    "strategy": "用真实资质、规范流程、专业讲解建立信任，专业但不打包票。",
+    "scripts": "「咱们仪器是正规渠道的，操作老师都持证。我先按规范帮您做皮肤评估，再给适合的建议，这样最稳妥。」",
+    "follow_up_questions": "您之前有没有做过类似项目的顾虑？是担心安全还是效果？",
+    "next_action": "出具规范评估，记录客户安全顾虑。",
+    "risk_note": "资质、证照真实；不冒充医生/医疗机构。",
+    "source": "权威原理（Cialdini《影响力》）；正规资质/持证操作合规",
+    "applicable_roles": [
+      "consultant",
+      "beautician"
+    ],
+    "applicable_stages": [
+      "new",
+      "intent"
+    ]
+  },
+  {
+    "scenario_key": "reciprocity",
+    "module": "消费者心理",
+    "title": "互惠（先给后得）",
+    "scene": "客户戒备，不愿一上来就被推销。",
+    "customer_psychology": "先收到好处，会自然产生回报心理。",
+    "common_mistakes": "把赠送做得很功利、附带太多条件，反而像套路。",
+    "strategy": "先无条件给小价值（专业建议/小样/护肤方案），建立好感后再自然推进。",
+    "scripts": "「不管您今天定不定，我先给您出个适合您的居家护肤搭配，您拿回去用。合适咱们再聊项目。」",
+    "follow_up_questions": "您日常护肤步骤大概是怎样的？我帮您看看哪步可以优化。",
+    "next_action": "先给价值，加微信，后续自然跟进。",
+    "risk_note": "赠送须真实可兑现，不附隐藏条件。",
+    "source": "互惠原理（Cialdini《影响力》）",
+    "applicable_roles": [
+      "consultant",
+      "receptionist"
+    ],
+    "applicable_stages": [
+      "new",
+      "intent"
+    ]
+  },
+  {
+    "scenario_key": "commitment_consistency",
+    "module": "消费者心理",
+    "title": "承诺一致性",
+    "scene": "客户口头认可效果/需求，但行动上拖延。",
+    "customer_psychology": "人倾向于让行为和已经说出口的话保持一致。",
+    "common_mistakes": "不去呼应客户自己说过的话，错过顺势推进的点。",
+    "strategy": "复述并确认客户自己承认的需求，再顺着她的话给下一步，让她为自己的话负责。",
+    "scripts": "「您刚也说最近泛红确实影响状态，想改善对吧？那咱们就先从修复屏障这步开始，正好对症。」",
+    "follow_up_questions": "您说的想在夏天前调整好，那我们倒推下时间安排好吗？",
+    "next_action": "呼应客户自述需求，落实到时间表。",
+    "risk_note": "不曲解客户原话、不替她下结论。",
+    "source": "承诺与一致原理（Cialdini《影响力》）；认知失调理论（Festinger）",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "intent"
+    ]
+  },
+  {
+    "scenario_key": "endowment",
+    "module": "消费者心理",
+    "title": "禀赋效应（拥有感）",
+    "scene": "客户犹豫是否开始，缺少「这是我的」感觉。",
+    "customer_psychology": "一旦觉得某样东西已经属于自己，就更难放弃。",
+    "common_mistakes": "只讲未来好处，不创造当下的拥有感。",
+    "strategy": "用体验、专属方案、预留名额制造「已经开始/已经为你准备」的拥有感。",
+    "scripts": "「我先按您的皮肤把这套方案排好，名额也给您留着了。您先体验一次，感受是您自己的，合不合适您说了算。」",
+    "follow_up_questions": "体验完您觉得最舒服的是哪一步？",
+    "next_action": "用专属方案+体验创造拥有感，记录体验反馈。",
+    "risk_note": "预留名额须真实，不虚构稀缺。",
+    "source": "禀赋效应（Thaler, 1980；Kahneman-Knetsch-Thaler 实验）",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "intent"
+    ]
+  },
+  {
+    "scenario_key": "decoy_effect",
+    "module": "消费者心理",
+    "title": "诱饵效应（套餐设计）",
+    "scene": "客户在多个套餐间难以选择。",
+    "customer_psychology": "通过相互对比来判断哪个最划算。",
+    "common_mistakes": "套餐太多让人选择困难，或没有清晰主推。",
+    "strategy": "设三档，让中间档显得最划算（主推），用对比把客户引向目标方案。",
+    "scripts": "「单次 380，6 次 1980 平均 330，但 10 次 2680 平均才 268 还送 2 次护理，多数姐都选这个，最划算。」",
+    "follow_up_questions": "您是想先试试，还是打算一次调理到位？",
+    "next_action": "用三档对比引导主推档，记录客户预算。",
+    "risk_note": "价格档位须与门店真实价目一致。",
+    "source": "诱饵效应/非对称占优（Ariely《怪诞行为学》）；套餐三档定价",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "intent"
+    ]
+  },
+  {
+    "scenario_key": "rational_analytical",
+    "module": "客户分型",
+    "title": "理性分析型客户",
+    "scene": "爱问原理、成分、数据，喜欢自己研究后决定。",
+    "customer_psychology": "靠逻辑和证据建立信任，讨厌被忽悠。",
+    "common_mistakes": "用情绪话术、夸张承诺，反而引起警惕。",
+    "strategy": "给结构化、有依据的信息，讲机理和适用条件，让她自己得出结论。",
+    "scripts": "「这个项目针对的是屏障修复，原理是先降低敏感再补水。它适合您这种换季泛红，但对色斑帮助不大，我如实跟您讲。」",
+    "follow_up_questions": "您还想了解哪方面的细节？我把适合和不适合都给您说清楚。",
+    "next_action": "提供完整信息+客观边界，记录关注点。",
+    "risk_note": "如实说明适应范围，不夸大、不回避局限。",
+    "source": "精细加工可能性模型 ELM·中心路径（Petty & Cacioppo, 1986）",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "new",
+      "intent"
+    ]
+  },
+  {
+    "scenario_key": "impulsive_emotional",
+    "module": "客户分型",
+    "title": "感性冲动型客户",
+    "scene": "凭感觉和心情决定，容易被氛围和效果打动。",
+    "customer_psychology": "重体验和感受，决策快但也容易后悔。",
+    "common_mistakes": "趁冲动硬塞大单，事后退单或投诉。",
+    "strategy": "用画面感和体验打动，但帮她把决定控制在合理范围，避免冲动大单。",
+    "scripts": "「您做完那种水润透亮的感觉，自己照镜子都会开心。咱们先从这套开始，刚刚好，不用一下子上太多。」",
+    "follow_up_questions": "您最想要那种「一看就气色好」的状态对吗？",
+    "next_action": "用体验感成交合适额度，记录避免过度销售。",
+    "risk_note": "不利用冲动诱导超额消费，给冷静空间。",
+    "source": "ELM·边缘路径 + 情绪启发式；冲动购买研究",
+    "applicable_roles": [
+      "consultant",
+      "receptionist"
+    ],
+    "applicable_stages": [
+      "intent"
+    ]
+  },
+  {
+    "scenario_key": "social_validation",
+    "module": "客户分型",
+    "title": "社交炫耀型客户",
+    "scene": "在意形象、爱分享、希望被认可和羡慕。",
+    "customer_psychology": "消费是为了更好的自我形象和社交价值。",
+    "common_mistakes": "只讲功效不讲「面子」，没击中她的真实动机。",
+    "strategy": "把效果与她的社交形象绑定，给她值得分享的体验和结果。",
+    "scripts": "「您皮肤底子好，调理到位拍照完全不用滤镜。做完我帮您拍组对比，您发圈肯定一堆人问。」",
+    "follow_up_questions": "您是有重要场合要美美的，还是想日常状态更在线？",
+    "next_action": "强调形象价值+可分享点，记录社交场景需求。",
+    "risk_note": "对比图须本人授权；不承诺医疗级效果。",
+    "source": "马斯洛尊重需求；炫耀性消费（Veblen）",
+    "applicable_roles": [
+      "consultant",
+      "receptionist"
+    ],
+    "applicable_stages": [
+      "intent",
+      "regular"
+    ]
+  },
+  {
+    "scenario_key": "anxious_safety",
+    "module": "客户分型",
+    "title": "焦虑求稳型客户",
+    "scene": "特别怕风险、怕过敏、怕做坏，反复确认安全。",
+    "customer_psychology": "安全感是第一需求，效果其次。",
+    "common_mistakes": "为促单淡化风险、打包票，反而显得不专业。",
+    "strategy": "正视她的担心，讲清流程的安全保障和应急处理，用「稳」赢得信任。",
+    "scripts": "「您谨慎是对的。咱们会先做小范围测试，全程有专人观察，万一有任何不适马上停、马上处理。安全永远第一。」",
+    "follow_up_questions": "您之前有过敏史吗？最担心的是哪种情况？",
+    "next_action": "做敏感测试+讲应急方案，记录过敏史。",
+    "risk_note": "如实告知风险，不淡化、不打包票；有过敏史须谨慎并可建议就医评估。",
+    "source": "马斯洛安全需求；损失厌恶与风险规避（Kahneman）",
+    "applicable_roles": [
+      "consultant",
+      "beautician"
+    ],
+    "applicable_stages": [
+      "new",
+      "intent"
+    ]
+  },
+  {
+    "scenario_key": "loyal_regular",
+    "module": "客户分型",
+    "title": "忠诚老客型客户",
+    "scene": "长期信任门店、复购稳定、愿意转介绍。",
+    "customer_psychology": "重感情和被重视，怕被当成「理所当然」。",
+    "common_mistakes": "把老客当韭菜频繁推销、忽略情感维护。",
+    "strategy": "先给情感和专属感（被记住、被优待），再自然带新项目和转介绍。",
+    "scripts": "「姐您都是老朋友了，新出的这个我第一个想到您，先给您留个老客专属价。您身边要是有合适的姐妹也可以一起。」",
+    "follow_up_questions": "您最近还满意吗？有没有想尝试的新项目？",
+    "next_action": "情感维护+专属权益+转介绍邀请，记录偏好。",
+    "risk_note": "不过度消费老客信任；转介绍奖励须真实。",
+    "source": "关系营销与客户忠诚（Reichheld, NPS）；互惠原理",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "regular"
+    ]
+  },
+  {
+    "scenario_key": "waiting_experience",
+    "module": "服务体验",
+    "title": "等待与排队体验",
+    "scene": "客户到店需要等待，容易产生不满。",
+    "customer_psychology": "等待中的焦躁会拉低对整体服务的评价。",
+    "common_mistakes": "让客户干等、不告知时长、不安抚。",
+    "strategy": "主动告知预计时间、提供舒适等待（茶饮/护肤小建议），把等待变成被照顾的体验。",
+    "scripts": "「姐不好意思让您稍等约 10 分钟，我先给您泡杯茶。要不要我趁这空给您看下皮肤、聊聊日常护肤？」",
+    "follow_up_questions": "您时间方不方便？要是赶时间我帮您优先安排。",
+    "next_action": "告知时长+填充等待价值，赶时间者优先。",
+    "risk_note": "—",
+    "source": "等待心理学（占用 vs 空闲时间感知, Maister）；服务蓝图",
+    "applicable_roles": [
+      "receptionist",
+      "beautician"
+    ],
+    "applicable_stages": [
+      "new",
+      "deal",
+      "regular"
+    ]
+  },
+  {
+    "scenario_key": "complaint_handling",
+    "module": "服务体验",
+    "title": "现场客诉与不满安抚",
+    "scene": "客户对服务、效果或体验当场表达不满。",
+    "customer_psychology": "希望被认真对待，情绪先于事实，要先被听见。",
+    "common_mistakes": "急着辩解、推责、讲道理，激化情绪。",
+    "strategy": "先共情接情绪、再了解事实、给明确解决方案，必要时升级，绝不当场对抗。",
+    "scripts": "「真的很抱歉让您有这样的感受，您先别急，我一定帮您处理好。您跟我说说具体是哪里不满意？」",
+    "follow_up_questions": "（只为了解）是效果、服务还是沟通上的问题？您希望怎么处理您会满意？",
+    "next_action": "记录客诉，给方案，涉及金钱/安全立即升级店长。",
+    "risk_note": "涉及效果纠纷/退款/身体不适必须升级，不当场承诺赔付。",
+    "source": "服务补救悖论；情绪优先于事实（先处理心情再处理事情）",
+    "applicable_roles": [
+      "consultant",
+      "beautician",
+      "receptionist",
+      "manager",
+      "owner"
+    ],
+    "applicable_stages": [
+      "deal",
+      "regular",
+      "churn_risk"
+    ]
+  },
+  {
+    "scenario_key": "expectation_management",
+    "module": "服务体验",
+    "title": "服务前预期管理",
+    "scene": "客户对效果期待过高，做之前没说清。",
+    "customer_psychology": "期待越高，落差越大，越容易不满。",
+    "common_mistakes": "为成交把效果说太满，做完达不到引发纠纷。",
+    "strategy": "做之前客观说明效果节奏、个体差异和注意事项，把预期拉到真实区间。",
+    "scripts": "「这次做完会感觉水润提亮，但屏障修复是循序渐进的，通常几次后稳定。我先跟您说清楚，您心里有数。」",
+    "follow_up_questions": "您最希望这次先看到什么变化？",
+    "next_action": "服务前说明预期+注意事项，记录客户期待。",
+    "risk_note": "不夸大即时效果，如实告知个体差异。",
+    "source": "期望-失验理论（Oliver）；服务质量差距模型 SERVQUAL",
+    "applicable_roles": [
+      "consultant",
+      "beautician"
+    ],
+    "applicable_stages": [
+      "deal"
+    ]
+  },
+  {
+    "scenario_key": "privacy_comfort",
+    "module": "服务体验",
+    "title": "隐私与舒适（敏感项目）",
+    "scene": "涉及暴露、私密部位或近距离操作的项目。",
+    "customer_psychology": "在意尊严、隐私和被尊重，容易紧张尴尬。",
+    "common_mistakes": "操作前不说明、不遮挡、当众谈论客户身体问题。",
+    "strategy": "操作前告知每一步、做好遮挡、注意言语分寸，让客户始终有掌控感和被尊重感。",
+    "scripts": "「接下来我会帮您清洁这个区域，我先盖好其他地方。过程中有任何不舒服随时告诉我，咱们随时停。」",
+    "follow_up_questions": "这个力度和温度您还适应吗？",
+    "next_action": "全程告知+遮挡+尊重，记录舒适度反馈。",
+    "risk_note": "严格保护隐私，不外传、不议论客户身体情况。",
+    "source": "尊重与隐私需求（马斯洛尊重需求）；敏感项目操作规范",
+    "applicable_roles": [
+      "beautician"
+    ],
+    "applicable_stages": [
+      "deal",
+      "regular"
+    ]
+  },
+  {
+    "scenario_key": "handover_between_staff",
+    "module": "服务体验",
+    "title": "多人交接服务",
+    "scene": "客户由咨询转到美容师、或换人接手服务。",
+    "customer_psychology": "怕要重新说一遍、怕新人不了解自己。",
+    "common_mistakes": "交接不清、信息断层，让客户反复重复。",
+    "strategy": "交接时同步客户画像与需求，让接手者一开口就「懂她」。",
+    "scripts": "「这位是张老师，我已经把您的情况和今天要做的都跟她说好了，您放心交给她。」（对内：先同步顾虑/偏好/禁忌）",
+    "follow_up_questions": "（接手者）您之前提到的泛红，今天我重点帮您注意，可以吗？",
+    "next_action": "交接同步画像，接手者主动呼应已知信息。",
+    "risk_note": "交接含禁忌/过敏史等安全信息，不可遗漏。",
+    "source": "服务连续性；客户画像同步降低重复成本",
+    "applicable_roles": [
+      "consultant",
+      "beautician"
+    ],
+    "applicable_stages": [
+      "deal",
+      "regular"
+    ]
+  },
+  {
+    "scenario_key": "refund_request",
+    "module": "服务体验",
+    "title": "客户要求退款",
+    "scene": "客户因效果、体验或个人原因要求退款。",
+    "customer_psychology": "可能真不满，也可能是情绪或试探，需要被认真对待。",
+    "common_mistakes": "一线擅自答应或拒绝、争吵、拖延不回应。",
+    "strategy": "先稳住情绪、了解原因、按门店规则处理，退款/补偿一律升级，不擅自承诺。",
+    "scripts": "「您的诉求我记下了，也理解您的心情。退款这块我需要按流程帮您对接负责人来处理，我现在就去安排，尽快给您答复。」",
+    "follow_up_questions": "（了解）主要是哪方面让您想退？看看有没有更合适的解决办法。",
+    "next_action": "记录+立即升级店长/老板，按规则闭环。",
+    "risk_note": "退款/赔付属高敏感，一线不得擅自承诺，必须升级。",
+    "source": "服务补救流程；退款权限分级管控（合规）",
+    "applicable_roles": [
+      "consultant",
+      "beautician",
+      "receptionist",
+      "manager",
+      "owner"
+    ],
+    "applicable_stages": [
+      "deal",
+      "regular",
+      "churn_risk"
+    ]
+  },
+  {
+    "scenario_key": "membership_upgrade",
+    "module": "老客复购",
+    "title": "会员升级",
+    "scene": "高频到店的老客，适合升级会员/储值。",
+    "customer_psychology": "愿意为长期划算和专属待遇买单，但怕被套牢。",
+    "common_mistakes": "只讲充值金额、不讲长期价值和灵活性。",
+    "strategy": "用「您本来就常来，办卡更划算」的真实账，叠加专属权益，降低顾虑。",
+    "scripts": "「您这两个月来了 4 次，按会员价能省不少，还能升级专属护理。卡也支持转赠，挺灵活的。要不要帮您算笔账？」",
+    "follow_up_questions": "您大概多久来一次？更看重省钱还是专属服务？",
+    "next_action": "算清长期账+权益，记录会员意向。",
+    "risk_note": "储值规则、退卡政策须如实告知，不误导。",
+    "source": "转换成本与承诺升级；储值留存（合规告知）",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "regular"
+    ]
+  },
+  {
+    "scenario_key": "referral_request",
+    "module": "老客复购",
+    "title": "转介绍邀请",
+    "scene": "满意的老客是最好的获客来源。",
+    "customer_psychology": "愿意分享好东西，但不想显得在帮商家拉客。",
+    "common_mistakes": "硬要客户拉人、奖励像交易，让人尴尬。",
+    "strategy": "在客户满意的高点自然提出，把转介绍包装成「带姐妹一起变美」而非任务。",
+    "scripts": "「您效果这么好，身边要是有被同样问题困扰的姐妹，带她来体验，您俩都有专属福利，一起变美多好。」",
+    "follow_up_questions": "您身边有没有也在为皮肤发愁的朋友？",
+    "next_action": "满意时机提出+真实双方权益，记录转介绍。",
+    "risk_note": "转介绍奖励须真实兑现，不强制。",
+    "source": "互惠 + 社会认同（Cialdini）；口碑转介绍（NPS, Reichheld）",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "regular",
+      "deal"
+    ]
+  },
+  {
+    "scenario_key": "birthday_care",
+    "module": "老客复购",
+    "title": "生日与纪念关怀",
+    "scene": "客户生日/会员周年等特殊节点。",
+    "customer_psychology": "被记住的感动远大于优惠本身。",
+    "common_mistakes": "群发模板祝福、只想着借机推销。",
+    "strategy": "先真诚祝福和送上心意，关怀在前、邀约在后，自然不功利。",
+    "scripts": "「姐生日快乐呀！给您留了份生日护理小心意，您方便的时候来享受下，就当犒劳自己。」",
+    "follow_up_questions": "您这周还是下周方便来享受生日护理？",
+    "next_action": "生成节点关怀任务+专属心意，记录到店。",
+    "risk_note": "心意/权益须真实可兑现。",
+    "source": "情感账户（关系营销）；被记住的关怀优于优惠",
+    "applicable_roles": [
+      "consultant",
+      "receptionist"
+    ],
+    "applicable_stages": [
+      "regular",
+      "deal"
+    ]
+  },
+  {
+    "scenario_key": "cross_sell",
+    "module": "老客复购",
+    "title": "关联项目交叉销售",
+    "scene": "老客做某项目后，有关联需求未被满足。",
+    "customer_psychology": "信任已建立，对「正好适合我」的搭配接受度高。",
+    "common_mistakes": "乱搭不相关项目，让客户觉得只是想多卖。",
+    "strategy": "基于真实皮肤状态推荐协同项目，用「搭配效果更好」的专业逻辑。",
+    "scripts": "「您补水做得不错，屏障稳了。接下来配合一点提亮，整体气色会更均匀，两个一起做相互加成。」",
+    "follow_up_questions": "您除了补水，还想再改善哪一块？",
+    "next_action": "按真实需求推协同项目，记录机会点。",
+    "risk_note": "按需推荐，不堆砌无关项目。",
+    "source": "关联销售/需求互补；基于真实画像推荐",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "regular",
+      "deal"
+    ]
+  },
+  {
+    "scenario_key": "vip_maintenance",
+    "module": "老客复购",
+    "title": "高价值客户维护",
+    "scene": "消费高、贡献大的 VIP 客户。",
+    "customer_psychology": "期待与众不同的尊享体验和被高度重视。",
+    "common_mistakes": "和普通客户一样对待，让 VIP 感到不被珍惜。",
+    "strategy": "给专属对接人、优先安排、定制化关怀，让她感到独一无二。",
+    "scripts": "「姐您来我都提前给您留好房间和老师。这次根据您的状态我特意调整了方案，专门给您定的。」",
+    "follow_up_questions": "您对现在的服务还有什么想让我们做得更好的？",
+    "next_action": "专属服务+定期主动关怀，记录偏好与禁忌。",
+    "risk_note": "保护 VIP 隐私，不外传消费信息。",
+    "source": "客户终身价值 CLV；尊享差异化（帕累托 2/8 法则）",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "regular"
+    ]
+  },
+  {
+    "scenario_key": "group_buying",
+    "module": "活动转化",
+    "title": "拼团与裂变",
+    "scene": "门店做拼团/邀请有礼等裂变活动。",
+    "customer_psychology": "占便宜+和朋友一起的双重驱动。",
+    "common_mistakes": "规则复杂讲不清、奖励不吸引、不给开团示范。",
+    "strategy": "把规则讲到一句话能懂，给清晰的「拉谁、得什么」，降低开团门槛。",
+    "scripts": "「这个 2 人拼团，您和一位姐妹一起，每人立省 200。您拉个常一起逛街的姐妹就行，我帮您把团开好。」",
+    "follow_up_questions": "您身边谁最可能跟您一起？我帮您把链接发好。",
+    "next_action": "帮客户开团+提供话术，跟进成团。",
+    "risk_note": "拼团价格、规则须真实，不虚标原价。",
+    "source": "社会传播/裂变；从众 + 互惠",
+    "applicable_roles": [
+      "consultant",
+      "receptionist"
+    ],
+    "applicable_stages": [
+      "intent",
+      "regular"
+    ]
+  },
+  {
+    "scenario_key": "limited_offer",
+    "module": "活动转化",
+    "title": "限时秒杀承接",
+    "scene": "限时低价活动引流来的客户，到店要承接转化。",
+    "customer_psychology": "冲着便宜来，戒备被加价套路。",
+    "common_mistakes": "到店强行加项、变相涨价，引发反感和差评。",
+    "strategy": "先把秒杀的体验做扎实、做满意，建立信任后再自然介绍进阶，不强推。",
+    "scripts": "「您这次秒杀的体验我会认真给您做好。做完如果您喜欢，我再跟您说怎么继续最划算，不喜欢也完全没关系。」",
+    "follow_up_questions": "您是第一次来咱家吧？今天先好好体验。",
+    "next_action": "做透体验+建立信任+轻引导，记录意向。",
+    "risk_note": "不诱导加价、不强制消费，履行秒杀承诺。",
+    "source": "稀缺原理（Cialdini）；引流-承接-信任转化",
+    "applicable_roles": [
+      "consultant",
+      "beautician"
+    ],
+    "applicable_stages": [
+      "new",
+      "intent"
+    ]
+  },
+  {
+    "scenario_key": "pre_sale",
+    "module": "活动转化",
+    "title": "预售与储值",
+    "scene": "大促/开业前的预售、定金、储值活动。",
+    "customer_psychology": "怕钱打了水漂、怕到时用不上。",
+    "common_mistakes": "只讲优惠力度，不讲保障和使用灵活性。",
+    "strategy": "用「现在锁定最优价+灵活可用+保障」打消顾虑，给确定感。",
+    "scripts": "「现在预存享全年最低价，项目可以按您节奏慢慢用，有效期也长，用不完还能转赠，挺稳的。」",
+    "follow_up_questions": "您一般一年大概会做多少次护理？",
+    "next_action": "讲清保障+灵活性，记录储值意向。",
+    "risk_note": "储值有效期、退款规则须明示，不误导。",
+    "source": "预承诺与储值锁定；确定性保障对冲损失规避",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "intent",
+      "regular"
+    ]
+  },
+  {
+    "scenario_key": "event_onsite",
+    "module": "活动转化",
+    "title": "到店活动现场转化",
+    "scene": "门店做沙龙/体验日等线下活动，现场促转化。",
+    "customer_psychology": "氛围中容易心动，但也容易事后冷静反悔。",
+    "common_mistakes": "只热闹不收口、没有现场专属理由促行动。",
+    "strategy": "用现场专属权益+体验+一对一收口，把氛围转成具体的下一步。",
+    "scripts": "「今天活动现场定才有这个专属礼包，过了就没了。您体验下来感觉不错的话，我现在帮您锁好。」",
+    "follow_up_questions": "今天体验下来您最喜欢哪个项目？",
+    "next_action": "现场体验+专属权益收口，记录到店转化。",
+    "risk_note": "现场专属权益须真实，不虚构限定。",
+    "source": "现场氛围与社会认同；情境化促成",
+    "applicable_roles": [
+      "consultant",
+      "receptionist"
+    ],
+    "applicable_stages": [
+      "intent",
+      "regular",
+      "churn_risk"
+    ]
+  },
+  {
+    "scenario_key": "festival_marketing",
+    "module": "活动转化",
+    "title": "节日营销邀约",
+    "scene": "节假日/换季等节点做主题营销。",
+    "customer_psychology": "节日有「对自己好一点」的消费心理。",
+    "common_mistakes": "群发节日广告、和客户需求脱节。",
+    "strategy": "把节日主题和客户具体需求结合，给应景且适合她的理由。",
+    "scripts": "「换季正是皮肤闹脾气的时候，趁这次换季焕肤季，把屏障养稳，过冬不泛红。给您留个名额？」",
+    "follow_up_questions": "您换季是不是也容易干、容易泛红？",
+    "next_action": "节日主题+个性化邀约，记录到店意向。",
+    "risk_note": "活动规则、价格须与门店一致。",
+    "source": "节日消费心理（对自己好）；情境营销",
+    "applicable_roles": [
+      "consultant",
+      "receptionist"
+    ],
+    "applicable_stages": [
+      "intent",
+      "regular",
+      "churn_risk"
+    ]
+  },
+  {
+    "scenario_key": "wechat_moments",
+    "module": "行为设计与跟进",
+    "title": "朋友圈运营触达",
+    "scene": "通过朋友圈持续影响客户、不直接打扰。",
+    "customer_psychology": "反感私聊推销，但不排斥刷到有用/有趣的内容。",
+    "common_mistakes": "刷屏硬广、只发价格，被屏蔽。",
+    "strategy": "用价值内容（护肤知识/真实案例/客户故事）做长期种草，少硬广多干货。",
+    "scripts": "（朋友圈）「换季泛红自救三步：减法护肤+加强补水+严格防晒。具体怎么做评论区问我～」",
+    "follow_up_questions": "（互动）看到有人点赞/评论时私信：您也有换季泛红的困扰吗？",
+    "next_action": "规律发价值内容，借互动自然破冰。",
+    "risk_note": "案例须脱敏授权；不发违规疗效宣传。",
+    "source": "内容种草·长期影响；社会认同（朋友圈）",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "intent",
+      "regular",
+      "churn_risk"
+    ]
+  },
+  {
+    "scenario_key": "first_touch_24h",
+    "module": "行为设计与跟进",
+    "title": "新客24小时首次跟进",
+    "scene": "新客到店/咨询后的黄金 24 小时。",
+    "customer_psychology": "印象还热乎，及时跟进显专业、被重视。",
+    "common_mistakes": "拖几天才联系、第一条就群发广告。",
+    "strategy": "24h 内以关怀+有用信息切入，巩固印象，自然留口子。",
+    "scripts": "「姐今天见到您很开心～按您的皮肤我整理了两条居家护理建议发您（附）。有任何问题随时找我。」",
+    "follow_up_questions": "您昨天说的干燥问题，今天有没有好点？",
+    "next_action": "24h 内关怀触达，记录沟通，定下次节点。",
+    "risk_note": "不首条硬广，尊重对方时间。",
+    "source": "首因效应·黄金24h；及时跟进提升转化",
+    "applicable_roles": [
+      "consultant",
+      "receptionist"
+    ],
+    "applicable_stages": [
+      "new",
+      "intent"
+    ]
+  },
+  {
+    "scenario_key": "trigger_reminder",
+    "module": "行为设计与跟进",
+    "title": "触发式节点提醒",
+    "scene": "在关键节点（疗程到期、季节、效果维持期）主动提醒。",
+    "customer_psychology": "被恰到好处地提醒，会觉得专业又贴心。",
+    "common_mistakes": "凭记忆乱跟、错过最佳维护期。",
+    "strategy": "按项目周期设触发提醒，在效果将衰减/最佳续做期提醒，理由充分。",
+    "scripts": "「姐您上次补水快到维持期啦，这两天再做一次能把效果稳住，不然容易回到原样，挺可惜。」",
+    "follow_up_questions": "您最近皮肤状态还稳吗？要不要趁这周巩固一次？",
+    "next_action": "按周期建触发提醒任务，记录续做。",
+    "risk_note": "提醒基于真实周期，不制造虚假紧迫。",
+    "source": "触发式提醒/行为设计（Fogg 行为模型）；周期维护",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "deal",
+      "regular"
+    ]
+  },
+  {
+    "scenario_key": "small_commitment",
+    "module": "行为设计与跟进",
+    "title": "小承诺递进",
+    "scene": "客户对大决定有压力，难以一步到位。",
+    "customer_psychology": "小步骤压力小，答应了小的更容易接着答应大的。",
+    "common_mistakes": "一上来要客户做大决定，把人吓退。",
+    "strategy": "把目标拆成一连串低门槛小步（先加微信→先看方案→先体验→再疗程）。",
+    "scripts": "「您先不用现在决定，加个微信，我把适合您的方案发您看看，觉得合适再说下一步，好吗？」",
+    "follow_up_questions": "先加微信发您方案可以吗？",
+    "next_action": "设计阶梯式小步骤，逐步推进并记录。",
+    "risk_note": "每一步真实兑现，不诱导。",
+    "source": "登门槛效应 Foot-in-the-door（Freedman & Fraser, 1966）；承诺一致",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "new",
+      "intent"
+    ]
+  },
+  {
+    "scenario_key": "reactivate_3times",
+    "module": "行为设计与跟进",
+    "title": "多次未回应处理",
+    "scene": "连续多次跟进客户都不回应。",
+    "customer_psychology": "暂时没需求或不想被打扰，但未必永久流失。",
+    "common_mistakes": "继续高频追问，导致被拉黑彻底失联。",
+    "strategy": "停止索取式跟进，转为低频价值触达，并打「长期培育」标签，等需求自然出现。",
+    "scripts": "「姐我就不常打扰您啦，偶尔给您发点有用的护肤小知识。需要我的时候随时招呼一声～」",
+    "follow_up_questions": "（仅在对方有回应时再深入）",
+    "next_action": "转低频朋友圈培育+打长期标签，停止私聊轰炸。",
+    "risk_note": "尊重客户，避免骚扰式跟进。",
+    "source": "尊重边界·低频培育；避免心理抗拒 Reactance（Brehm）",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "intent",
+      "churn_risk"
+    ]
+  },
+  {
+    "scenario_key": "tag_management",
+    "module": "行为设计与跟进",
+    "title": "客户打标签习惯",
+    "scene": "员工跟进多个客户，信息容易混乱遗漏。",
+    "customer_psychology": "（管理视角）精准的标签让每次沟通都「记得她」。",
+    "common_mistakes": "不打标签、全凭记忆，导致跟进千篇一律。",
+    "strategy": "每次沟通后即时更新标签（需求/顾虑/偏好/阶段/禁忌），让下次跟进有的放矢。",
+    "scripts": "（管理提醒）沟通后顺手记一句：她在意的点、卡在哪、下次切入口。",
+    "follow_up_questions": "这位客户最在意什么？上次卡在哪一步？",
+    "next_action": "建立沟通后即时打标签的习惯，沉淀客户画像。",
+    "risk_note": "标签客观、不含歧视性或冒犯性描述；保护隐私。",
+    "source": "客户画像/CRM 标签体系；个性化跟进",
+    "applicable_roles": [
+      "consultant",
+      "manager"
+    ],
+    "applicable_stages": [
+      "new",
+      "intent",
+      "regular"
+    ]
+  },
+  {
+    "scenario_key": "price_promise_boundary",
+    "module": "合规风险",
+    "title": "价格与退款承诺边界",
+    "scene": "客户要求额外折扣、退款、赠送或特殊价格。",
+    "customer_psychology": "想争取更多利益，试探一线的权限。",
+    "common_mistakes": "一线为成交擅自降价、承诺退款或加赠。",
+    "strategy": "态度好但守住权限：价格/退款/特殊政策一律按规则，超出权限的升级，不擅自承诺。",
+    "scripts": "「我特别想帮您争取，但这个折扣超出我的权限了。我帮您申请一下，能争取到什么我如实告诉您，不让您空等。」",
+    "follow_up_questions": "您主要是希望在价格还是赠品上更优惠些？",
+    "next_action": "记录诉求+按规则上报，不擅自承诺。",
+    "risk_note": "价格、退款、赠送属授权范围，越权承诺须拦截升级。",
+    "source": "价格/退款授权分级；明码标价合规",
+    "applicable_roles": [
+      "consultant",
+      "beautician",
+      "receptionist",
+      "manager",
+      "owner"
+    ],
+    "applicable_stages": [
+      "intent",
+      "deal",
+      "churn_risk"
+    ]
+  },
+  {
+    "scenario_key": "medical_claim",
+    "module": "合规风险",
+    "title": "医疗用语边界",
+    "scene": "客户问的问题涉及治疗、诊断、医疗效果（生活美容门店）。",
+    "customer_psychology": "把美容和医疗混为一谈，期待治疗效果。",
+    "common_mistakes": "使用治疗/治好/诊断/处方等医疗用语，超出生活美容范围。",
+    "strategy": "明确生活美容的边界，用「改善/养护/护理」而非「治疗/治愈」，涉及医疗建议就医或转介。",
+    "scripts": "「咱们是生活美容，主要帮您日常养护和改善状态。您说的这个情况偏医疗范畴，建议您去正规医疗机构看一下更稳妥。」",
+    "follow_up_questions": "您这个情况是想日常养护，还是已经比较严重了？",
+    "next_action": "守边界+如实告知+必要时建议就医，记录。",
+    "risk_note": "严禁使用治疗/治愈/诊断等医疗用语；超范围即升级或转介。",
+    "source": "生活美容 vs 医疗美容边界；《医疗广告管理办法》",
+    "applicable_roles": [
+      "consultant",
+      "beautician",
+      "receptionist",
+      "manager",
+      "owner"
+    ],
+    "applicable_stages": [
+      "new",
+      "intent",
+      "deal"
+    ]
+  },
+  {
+    "scenario_key": "privacy_protection",
+    "module": "合规风险",
+    "title": "客户隐私保护",
+    "scene": "涉及客户身体状况、消费记录、个人信息。",
+    "customer_psychology": "极度在意隐私，一旦泄露信任崩塌。",
+    "common_mistakes": "当众讨论客户问题、外发客户照片/信息、和别的客户聊她的事。",
+    "strategy": "信息最小化、不外传、不议论；用客户照片/案例必须脱敏并获授权。",
+    "scripts": "（对内规范）涉及客户身体情况、消费、联系方式一律保密，不在公共区域讨论，不发外部群。",
+    "follow_up_questions": "（用案例前）方便用您的对比照做案例吗？会做好隐私处理。",
+    "next_action": "严格保密+用图先授权，建立隐私规范。",
+    "risk_note": "泄露隐私属严重违规；案例须脱敏+授权。",
+    "source": "《个人信息保护法》；客户隐私与脱敏授权",
+    "applicable_roles": [
+      "consultant",
+      "beautician",
+      "receptionist",
+      "manager",
+      "owner"
+    ],
+    "applicable_stages": [
+      "new",
+      "intent",
+      "deal",
+      "regular"
+    ]
+  },
+  {
+    "scenario_key": "before_after_photo",
+    "module": "合规风险",
+    "title": "案例对比图使用合规",
+    "scene": "想用客户前后对比图做宣传或说服。",
+    "customer_psychology": "（客户）担心自己照片被乱用；（潜客）想看真实效果。",
+    "common_mistakes": "未授权使用、过度修图、用对比图暗示「保证效果」。",
+    "strategy": "用真实、获授权、脱敏的对比图，客观标注个体差异，不暗示普适承诺。",
+    "scripts": "「这是一位授权分享的客户对比，效果因人而异哈。您的情况我评估下大概能改善到什么程度，如实跟您讲。」",
+    "follow_up_questions": "您想看跟您类似肤质的案例吗？",
+    "next_action": "用合规案例+客观说明，记录客户关注。",
+    "risk_note": "须授权+脱敏+不过度修图+不承诺同样效果。",
+    "source": "对比图须授权脱敏；不得暗示普适疗效（广告法）",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "intent"
+    ]
+  },
+  {
+    "scenario_key": "minor_or_pregnant",
+    "module": "合规风险",
+    "title": "特殊人群（未成年/孕期等）",
+    "scene": "客户是未成年人、孕期哺乳期或有特殊健康状况。",
+    "customer_psychology": "可能不了解禁忌，只想要效果。",
+    "common_mistakes": "为成交忽略禁忌、不询问健康状况就操作。",
+    "strategy": "操作前主动询问健康状况，对禁忌人群明确告知不适合并建议替代/就医，安全优先于成交。",
+    "scripts": "「您现在孕期的话，有些项目我们是不建议做的，对您和宝宝的安全负责。我帮您推荐些温和又安全的护理方式。」",
+    "follow_up_questions": "您目前有没有怀孕、哺乳或正在用药/有基础病？",
+    "next_action": "筛查禁忌+拒做不适合项目+给安全替代，记录。",
+    "risk_note": "最高优先级：禁忌人群安全第一，宁可不做不可冒险，必要时建议就医。",
+    "source": "禁忌人群安全优先；知情同意与就医建议",
+    "applicable_roles": [
+      "consultant",
+      "beautician",
+      "receptionist",
+      "manager",
+      "owner"
+    ],
+    "applicable_stages": [
+      "new",
+      "intent",
+      "deal"
+    ]
+  },
+  {
+    "scenario_key": "fear_pain_risk",
+    "module": "医美专项",
+    "title": "客户怕疼、怕风险",
+    "scene": "客户对项目有兴趣，但反复问「疼不疼」「有没有副作用」「会不会失败」，迟迟不敢做。",
+    "customer_psychology": "怕疼怕风险的本质是损失厌恶+控制感缺失：对身体伤害的潜在损失，权重远高于变美收益。她要的是确定性和「我能掌控」的感觉，而非被催。",
+    "common_mistakes": "轻描淡写说「一点都不疼」、回避风险、用绝对化承诺安抚（埋客诉隐患）。",
+    "strategy": "用「透明化+可控感」对冲恐惧：如实讲真实感受与风险、讲清每一步、给她随时喊停的权利、用真实恢复案例锚定预期，把未知变成已知。",
+    "scripts": "「我跟您说实话，会有轻微胀感但大多数人能接受，全程您不舒服随时说我们就停。我把整个过程和恢复每天会是什么样都先跟您讲清楚，您心里有数了再决定。」",
+    "follow_up_questions": "您主要是担心疼痛，还是担心恢复和效果？之前有过不好的经历吗？",
+    "next_action": "做流程讲解+给真实恢复期案例+承诺可控，约一次面诊或低风险体验。",
+    "risk_note": "不得淡化真实风险、不得承诺零风险/零副作用、不做医疗诊断。",
+    "source": "损失厌恶与确定性效应（Kahneman & Tversky 前景理论, 1979）；医美知情同意与风险告知规范",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "intent"
+    ]
+  },
+  {
+    "scenario_key": "peak_end_service",
+    "module": "服务体验",
+    "title": "用峰终定律设计服务体验",
+    "scene": "一次到店服务的体验设计，决定客户记忆、复购与转介绍意愿。",
+    "customer_psychology": "人对一段体验的记忆，由「最强烈的瞬间（峰值）」和「结尾感受」决定，而非全程平均时长。峰值和收尾做好，整体评价就高。",
+    "common_mistakes": "全程平均用力、虎头蛇尾、结束时只忙着收钱催下次，把最差感受留在最后。",
+    "strategy": "刻意设计一个「峰值时刻」（超预期的细节关怀/即时效果展示）+ 一个温暖的「收尾时刻」（送别、贴心叮嘱、小赠礼），让她带着好记忆离开。",
+    "scripts": "「今天给您加做了肩颈放松，看您最近说累。回去记得多喝温水，这是给您备的居家护理小样，用法我写便签上了。路上注意安全，到家跟我说一声～」",
+    "follow_up_questions": "今天哪个环节您最舒服？有没有想让我们下次特别注意的？",
+    "next_action": "设计峰值环节+温暖送别+离店当晚关怀触达。",
+    "risk_note": "赠礼与加项需在权限内，不得诱导超额消费。",
+    "source": "峰终定律 Peak-End Rule（Kahneman & Redelmeier, 1993）；服务体验设计实践",
+    "applicable_roles": [
+      "consultant",
+      "beautician"
+    ],
+    "applicable_stages": [
+      "deal",
+      "regular"
+    ]
+  },
+  {
+    "scenario_key": "family_decision_chain",
+    "module": "销售成交",
+    "title": "决策权不在本人（家人决策链）",
+    "scene": "客户自己想做，但说「要回去和老公/家人商量」，决策权或钱袋不完全在她。",
+    "customer_psychology": "「商量」可能是真需同意，也可能是缓兵之计；核心是她需要一套能说服决策者、或让自己有底气拍板的理由（购买决策单元里她是发起者，但有否决人）。",
+    "common_mistakes": "无视决策链硬逼她当场定、或直接放走不给弹药。",
+    "strategy": "判断真实决策结构，把她武装成「内部说服者」：给她能转述给家人的价值理由和性价比账，必要时提供可与家人沟通的方式，降低回去被否的概率。",
+    "scripts": "「理解您，这种事和家人同步一下更稳妥。我帮您把为什么选这个、值在哪整理清楚，您回去也好说。要是叔叔有顾虑，我也可以帮您解释。」",
+    "follow_up_questions": "主要是需要谁同意？他可能会担心哪方面？预算还是效果？",
+    "next_action": "给可转述的价值理由+约定回复时间+预备应对家人顾虑。",
+    "risk_note": "不教唆隐瞒消费、不施压；尊重家庭真实决策。",
+    "source": "采购决策单元 DMU（Webster & Wind, 1972）；SPIN 顾问式销售（N. Rackham）",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "intent"
+    ]
+  },
+  {
+    "scenario_key": "renew_card",
+    "module": "老客复购",
+    "title": "老客续卡/续费（守住成果）",
+    "scene": "客户卡内次数将用完或临近到期，需要推进续卡而非流失。",
+    "customer_psychology": "已投入的时间金钱形成沉没成本，加上「中断就前功尽弃」的损失厌恶——续费的心理抓手是「不想让已有的改善白费」，而非「再花一笔」。",
+    "common_mistakes": "卡快用完才突然推销、只讲优惠不讲效果延续、让客户感觉被当成提款机。",
+    "strategy": "用效果对比让她看到「已有的改善」，把续卡定位成「守住成果」：强调中断会让效果回退（真实的话），叠加老客专属权益降低决策阻力。",
+    "scripts": "「姐您看这两张对比，三个月下来肤质稳多了。这种状态停下来会慢慢回去就可惜了，趁势再巩固一个疗程能锁得更牢。老客续这次我帮您申请了专属权益。」",
+    "follow_up_questions": "您自己感觉这段时间最明显的变化是什么？想继续保持吗？",
+    "next_action": "出对比记录+讲清中断损失+给老客权益+约续卡到店。",
+    "risk_note": "不制造焦虑、不虚构效果回退；权益须真实。",
+    "source": "沉没成本效应 + 损失厌恶（Kahneman & Tversky）；会员留存与续费实践",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "regular"
+    ]
+  },
+  {
+    "scenario_key": "disc_dominant",
+    "module": "沟通风格(DISC)",
+    "title": "D型·支配型（怎么沟通）",
+    "scene": "客户说话直接、节奏快、要结果、不耐烦细节，常自己拿主意。",
+    "customer_psychology": "DISC 支配型，重掌控与效率，讨厌被绕、被推销，要的是「你给我最优解，我来拍板」。",
+    "common_mistakes": "啰嗦铺垫、过度寒暄、绕弯子、不敢给建议让她自己挑。",
+    "strategy": "高效直给：一句话讲结论和最优方案，给二选一而非开放题，把决策权留给她但替她省掉筛选成本。",
+    "scripts": "「按您的情况，最优解是这个方案，效果和性价比都最好。您是今天开始还是周末？我直接帮您安排。」",
+    "follow_up_questions": "您要最快见效还是最稳妥？这两个方案您选哪个？",
+    "next_action": "给结论+二选一+立即安排，少铺垫。",
+    "risk_note": "高效不等于施压，仍须让客户真实自主决定。",
+    "source": "DISC 行为风格（W. M. Marston, 1928）—判断「怎么跟她说话」的沟通/表达风格；与「客户分型（购买动机）」是正交两套维度，勿混用",
+    "applicable_roles": [
+      "consultant",
+      "receptionist"
+    ],
+    "applicable_stages": [
+      "intent"
+    ]
+  },
+  {
+    "scenario_key": "disc_influence",
+    "module": "沟通风格(DISC)",
+    "title": "I型·社交型（怎么沟通）",
+    "scene": "客户热情健谈、爱聊天、在意感受和氛围、容易被打动也容易分心。",
+    "customer_psychology": "DISC 影响型，重关系与认同，决策受情绪和「喜不喜欢你」影响大于纯理性。",
+    "common_mistakes": "只讲冷冰冰的参数、不接她的情绪、急着收尾破坏氛围。",
+    "strategy": "先建立情感连接和认同，用案例、氛围、即时美的体验打动她，在情绪高点顺势促成，并给她「被重视」的感觉。",
+    "scripts": "「姐您气质真的很适合这个，做完那种透亮感您肯定会爱上。好多像您这样会保养的姐姐都在做，咱们今天就给您美起来？」",
+    "follow_up_questions": "您是不是平时也很注重状态？想不想现在就感受一下？",
+    "next_action": "情感连接+案例+即时体验，情绪高点促成。",
+    "risk_note": "不夸大效果、不利用情绪做不实承诺。",
+    "source": "DISC 行为风格（W. M. Marston, 1928）—沟通/表达风格维度，与购买动机分型正交，勿混用",
+    "applicable_roles": [
+      "consultant",
+      "receptionist"
+    ],
+    "applicable_stages": [
+      "intent"
+    ]
+  },
+  {
+    "scenario_key": "disc_steady",
+    "module": "沟通风格(DISC)",
+    "title": "S型·稳健型（怎么沟通）",
+    "scene": "客户温和、犹豫、怕做错决定、需要安全感和时间，常说再看看。",
+    "customer_psychology": "DISC 稳健型，厌恶风险与改变，需要被保证「安全、不会错、可以反悔」，被催会更退缩。",
+    "common_mistakes": "逼单、制造紧迫、施压，反而把她吓退。",
+    "strategy": "降低决策风险：给低门槛体验、无忧保障、循序渐进，用耐心和确定性陪她做小决定，不催。",
+    "scripts": "「不急的姐，这种事是要想清楚。要不您先从一次体验开始，觉得舒服适合咱们再往下，没有任何压力，您慢慢来。」",
+    "follow_up_questions": "您还有哪里不太放心？先试一次会不会让您更安心？",
+    "next_action": "给低门槛+保障+小步推进，耐心跟进不催。",
+    "risk_note": "不施压、不制造焦虑；保障承诺须真实可兑现。",
+    "source": "DISC 行为风格（W. M. Marston, 1928）—沟通/表达风格维度，与购买动机分型正交，勿混用",
+    "applicable_roles": [
+      "consultant",
+      "receptionist"
+    ],
+    "applicable_stages": [
+      "new",
+      "intent"
+    ]
+  },
+  {
+    "scenario_key": "disc_conscientious",
+    "module": "沟通风格(DISC)",
+    "title": "C型·谨慎型（怎么沟通）",
+    "scene": "客户爱问细节、查资料、比成分比原理、要证据，逻辑性强。",
+    "customer_psychology": "DISC 谨慎型，靠数据和逻辑决策，信专业不信热情，被忽悠会立刻警惕。",
+    "common_mistakes": "打感情牌、含糊其辞、答不上专业问题、夸大其词。",
+    "strategy": "用专业、数据、原理和证据说话：讲清作用机制、给可验证依据、坦诚说明局限，用专业度赢得信任。",
+    "scripts": "「这个仪器原理是作用在真皮层刺激胶原，能量和参数是这样设定的。它对您这种情况有改善，但不是万能，我把适合和不适合的情况都跟您讲清楚，您自己判断。」",
+    "follow_up_questions": "您最想了解的是原理、数据还是案例？还有哪些技术细节我帮您解答？",
+    "next_action": "给原理+数据+坦诚边界，用专业建立信任。",
+    "risk_note": "数据真实、不夸大、坦诚局限，不做医疗诊断。",
+    "source": "DISC 行为风格（W. M. Marston, 1928）—沟通/表达风格维度，与购买动机分型正交，勿混用",
+    "applicable_roles": [
+      "consultant"
+    ],
+    "applicable_stages": [
+      "intent"
+    ]
+  }
+]

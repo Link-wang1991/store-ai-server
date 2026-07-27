@@ -109,7 +109,7 @@ public class CoachAssistService {
 
             List<Map<String, Object>> memories = jdbc.queryForList(
                 "SELECT `key`, value, confidence FROM memory_items " +
-                "WHERE customer_id = ? AND store_id = ? ORDER BY created_at DESC LIMIT 10",
+                "WHERE customer_id = ? AND store_id = ? AND (status IS NULL OR status = 'confirmed') ORDER BY created_at DESC LIMIT 12",
                 customerId, cur.storeId());
             if (!memories.isEmpty()) {
                 sb.append("\n最近记忆：\n");

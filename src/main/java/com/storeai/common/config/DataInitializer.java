@@ -2,22 +2,28 @@ package com.storeai.common.config;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
-import org.springframework.context.annotation.Profile;
 
 import java.util.UUID;
 
 @Slf4j
 @Component
-@Profile("dev")
 @RequiredArgsConstructor
 public class DataInitializer implements CommandLineRunner {
 
     private final JdbcTemplate jdbc;
     private final PasswordEncoder passwordEncoder;
+
+    /**
+     * 仅开发演示环境才允许自动写入或覆盖演示账号、客户和任务。
+     * 正常本机启动默认关闭；兼容旧数据库列的检查仍会安全执行。
+     */
+    @Value("${app.demo.seed-on-start:false}")
+    private boolean seedDemoDataOnStart;
 
     @Override
     public void run(String... args) {
@@ -33,6 +39,7 @@ public class DataInitializer implements CommandLineRunner {
             {"chat_messages", "risk_level", "VARCHAR(10)"},
             {"chat_messages", "customer_id", "VARCHAR(64)"},
             {"chat_messages", "retrieved_chunks", "JSON"},
+            {"chat_messages", "methodology_sources", "JSON"},
             {"chat_messages", "content", "TEXT"},
             {"chat_messages", "user_message", "TEXT"},
             {"chat_messages", "ai_response", "TEXT"},
@@ -42,10 +49,16 @@ public class DataInitializer implements CommandLineRunner {
             {"customers", "stage", "VARCHAR(50)"},
             {"customers", "portrait", "JSON"},
             {"customers", "updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP"},
+            {"customers", "source", "VARCHAR(50)"},
+            {"customers", "notes", "TEXT"},
+            {"customers", "import_owner_name", "VARCHAR(100)"},
+            {"customers", "owner_match_status", "VARCHAR(32)"},
             {"customers", "concerns", "TEXT"},
             {"customers", "ai_suggestion", "TEXT"},
+            {"customers", "ai_suggested_at", "DATETIME"},
             {"customers", "import_raw", "JSON"},
             {"customers", "last_active_at", "DATETIME"},
+            {"customers", "last_deal_at", "DATETIME"},
             {"meetings", "employee_name", "VARCHAR(100)"},
             {"meetings", "customer_name", "VARCHAR(200)"},
             {"meetings", "duration", "INT"},
@@ -76,7 +89,12 @@ public class DataInitializer implements CommandLineRunner {
             {"meeting_analysis", "missed_opportunities", "TEXT"},
             {"meeting_analysis", "compliance_risks", "TEXT"},
             {"meeting_analysis", "followup_goal", "TEXT"},
+            // 早期数据库只有 report JSON，V5 又可能因历史字段已存在而未完整执行。
+            // 当前会谈分析会同时读取/写入这两个字段；缺少任一字段都会在“转写已完成”
+            // 后被误标为“处理失败”。这里按列幂等补齐，保留已有的阿里云历史数据。
+            {"meeting_analysis", "suggested_followup_at", "DATETIME"},
             {"meeting_analysis", "suggested_script", "TEXT"},
+            {"meeting_analysis", "report", "JSON"},
             {"meeting_analysis", "need_manager_involved", "TINYINT(1) DEFAULT 0"},
             {"meeting_analysis", "need_digging_score", "INT DEFAULT 60"},
             {"meeting_analysis", "deal_advancing_score", "INT DEFAULT 60"},
@@ -105,7 +123,12 @@ public class DataInitializer implements CommandLineRunner {
         safeExec("ALTER TABLE employees DROP CHECK employees_chk_1");
         safeExec("ALTER TABLE employees DROP CHECK employees_chk_2");
 
-        // 设置演示密码
+        if (!seedDemoDataOnStart) {
+            log.info("演示数据初始化已关闭：仅完成数据库兼容检查，不写入或覆盖演示数据");
+            return;
+        }
+
+        // 设置演示密码（仅显式演示环境）
         String hash = passwordEncoder.encode("demo123456");
         int updated = jdbc.update("UPDATE users SET password_hash = ? WHERE email LIKE '%@demo.com' OR email LIKE '%@store.ai'", hash);
         log.info("密码更新完成: 更新{}个账号", updated);

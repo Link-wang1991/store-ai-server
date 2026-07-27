@@ -15,22 +15,42 @@ import com.storeai.auth.security.JwtUtil;
 import com.storeai.auth.security.UserDetailsImpl;
 import com.storeai.common.exception.BizException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
 public class AuthService {
 
+    private static final long LOCAL_PREVIEW_TTL_MILLIS = 4 * 60 * 60 * 1000L;
+
+    private static final Map<String, String> ROLE_LABELS = Map.of(
+        "owner", "老板",
+        "admin", "管理员",
+        "manager", "店长",
+        "consultant", "咨询师",
+        "beautician", "美容师",
+        "receptionist", "前台",
+        "operator", "运营"
+    );
+
     private final UserRepository userRepository;
     private final EmployeeRepository employeeRepository;
     private final StoreRepository storeRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
+
+    @Value("${app.local-preview-login.enabled:false}")
+    private boolean localPreviewLoginEnabled;
+
+    @Value("${app.local-preview-login.owner-email:owner@demo.com}")
+    private String localPreviewOwnerEmail;
 
     public LoginResponse login(LoginRequest req) {
         // 查找用户
@@ -68,7 +88,7 @@ public class AuthService {
                 .storeId(employee.getStoreId())
                 .employeeId(employee.getId())
                 .role(employee.getRole())
-                .roleLabel(employee.getRole())
+                .roleLabel(roleLabel(employee.getRole()))
                 .build();
 
         String token = jwtUtil.generateToken(details, Map.of(
@@ -82,8 +102,67 @@ public class AuthService {
         return new LoginResponse(token,
                 user.getId(), employee.getId(),
                 employee.getStoreId(), employee.getRole(),
-                employee.getRole(), storeName,
+                roleLabel(employee.getRole()), storeName,
                 user.getName() != null ? user.getName() : "");
+    }
+
+    /**
+     * 本机验收专用：在 local profile 中由配置明确打开，列出同一门店的真实账号角色。
+     * 不返回邮箱、密码或用户 ID，避免把账号信息当作免密接口的返回内容。
+     */
+    public List<LocalPreviewAccount> listLocalPreviewAccounts() {
+        LocalPreviewStore previewStore = requireLocalPreviewStore();
+        return employeeRepository.selectList(new LambdaQueryWrapper<Employee>()
+                .eq(Employee::getStoreId, previewStore.storeId())
+                .eq(Employee::getStatus, "active")
+                .isNotNull(Employee::getUserId)
+                .orderByAsc(Employee::getCreatedAt))
+            .stream()
+            .map(employee -> new LocalPreviewAccount(
+                employee.getId(),
+                employee.getName() == null || employee.getName().isBlank() ? "未命名员工" : employee.getName(),
+                employee.getRole(), roleLabel(employee.getRole()), entryFor(employee.getRole())
+            ))
+            .toList();
+    }
+
+    /**
+     * 本机验收专用的短时角色令牌。只能进入配置 owner 所在门店的已启用员工，
+     * 且仅在 local profile 明确开启时可调用，不校验也不会读取员工密码。
+     */
+    public LoginResponse localPreviewLogin(String employeeId) {
+        if (employeeId == null || employeeId.isBlank()) throw BizException.badRequest("请选择要体验的角色");
+        LocalPreviewStore previewStore = requireLocalPreviewStore();
+        Employee employee = employeeRepository.selectById(employeeId);
+        if (employee == null || !previewStore.storeId().equals(employee.getStoreId())
+                || !"active".equals(employee.getStatus()) || employee.getUserId() == null) {
+            throw BizException.notFound("可体验的员工账号");
+        }
+        User user = userRepository.selectById(employee.getUserId());
+        if (user == null) throw BizException.notFound("可体验的员工账号");
+        Store store = storeRepository.selectById(employee.getStoreId());
+        String storeName = store == null || store.getName() == null ? "" : store.getName();
+        String name = user.getName() == null || user.getName().isBlank() ? employee.getName() : user.getName();
+
+        UserDetailsImpl details = UserDetailsImpl.builder()
+            .userId(user.getId())
+            .email(user.getEmail())
+            .password(user.getPasswordHash())
+            .storeId(employee.getStoreId())
+            .employeeId(employee.getId())
+            .role(employee.getRole())
+            .roleLabel(roleLabel(employee.getRole()))
+            .build();
+        String token = jwtUtil.generateToken(details, Map.of(
+            "storeId", employee.getStoreId(),
+            "employeeId", employee.getId(),
+            "role", employee.getRole(),
+            "name", name == null ? "" : name,
+            "storeName", storeName,
+            "localPreview", true
+        ), LOCAL_PREVIEW_TTL_MILLIS);
+        return new LoginResponse(token, user.getId(), employee.getId(), employee.getStoreId(),
+            employee.getRole(), roleLabel(employee.getRole()), storeName, name == null ? "" : name);
     }
 
     @Transactional
@@ -152,4 +231,27 @@ public class AuthService {
                 token, user.getId(), employee.getId(),
                 store.getId(), "owner", "老板", storeName, req.getName());
     }
+
+    private static String roleLabel(String role) {
+        return ROLE_LABELS.getOrDefault(role, role == null ? "" : role);
+    }
+
+    private LocalPreviewStore requireLocalPreviewStore() {
+        if (!localPreviewLoginEnabled) throw BizException.notFound("本机角色体验");
+        User owner = userRepository.selectOne(new LambdaQueryWrapper<User>()
+            .eq(User::getEmail, localPreviewOwnerEmail.trim().toLowerCase()));
+        if (owner == null) throw BizException.badRequest("未找到本机体验的老板账号，请先使用正常登录");
+        Employee employee = employeeRepository.selectOne(new LambdaQueryWrapper<Employee>()
+            .eq(Employee::getUserId, owner.getId())
+            .eq(Employee::getStatus, "active"));
+        if (employee == null) throw BizException.badRequest("本机体验老板账号未启用");
+        return new LocalPreviewStore(employee.getStoreId());
+    }
+
+    private static String entryFor(String role) {
+        return "owner".equals(role) || "manager".equals(role) || "admin".equals(role) ? "/admin" : "/home";
+    }
+
+    public record LocalPreviewAccount(String employeeId, String name, String role, String roleLabel, String entry) {}
+    private record LocalPreviewStore(String storeId) {}
 }

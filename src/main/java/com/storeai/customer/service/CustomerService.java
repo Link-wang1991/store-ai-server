@@ -26,7 +26,19 @@ public class CustomerService {
         var qw = new LambdaQueryWrapper<Customer>()
                 .eq(Customer::getStoreId, cur.storeId());
         if (!cur.isAdmin()) {
-            qw.eq(Customer::getAssignedTo, cur.employeeId());
+            // 被分配了正式跟进任务的员工，必须能看到对应客户，否则首页任务卡会
+            // 显示客户却无法打开档案或带上下文进入 AI 教练。只放开仍在处理的任务。
+            List<String> taskCustomerIds = jdbc.queryForList("""
+                SELECT DISTINCT customer_id FROM tasks
+                WHERE store_id = ? AND assigned_to = ? AND customer_id IS NOT NULL
+                  AND status IN ('todo', 'doing', 'overdue')
+                """, String.class, cur.storeId(), cur.employeeId());
+            if (taskCustomerIds.isEmpty()) {
+                qw.eq(Customer::getAssignedTo, cur.employeeId());
+            } else {
+                qw.and(scope -> scope.eq(Customer::getAssignedTo, cur.employeeId())
+                    .or().in(Customer::getId, taskCustomerIds));
+            }
         }
         qw.orderByDesc(Customer::getUpdatedAt);
         return customerRepo.selectList(qw);
@@ -38,7 +50,7 @@ public class CustomerService {
         if (c == null || !cur.storeId().equals(c.getStoreId())) {
             throw BizException.notFound("客户");
         }
-        if (!cur.isAdmin() && !cur.employeeId().equals(c.getAssignedTo())) {
+        if (!cur.isAdmin() && !cur.employeeId().equals(c.getAssignedTo()) && !hasOpenAssignedTask(id)) {
             throw BizException.forbidden();
         }
         return c;
@@ -48,6 +60,7 @@ public class CustomerService {
     @Transactional
     public Customer update(String id, Customer update) {
         Customer c = getById(id);
+        requireOwnerForWrite(c);
         String oldName = c.getName();
         String oldStage = c.getStage();
         if (update.getName() != null) c.setName(update.getName());
@@ -74,6 +87,23 @@ public class CustomerService {
 
     public void delete(String id) {
         Customer c = getById(id);
+        requireOwnerForWrite(c);
         customerRepo.deleteById(id);
     }
+
+    private void requireOwnerForWrite(Customer customer) {
+        if (!cur.isAdmin() && !cur.employeeId().equals(customer.getAssignedTo())) {
+            throw BizException.forbidden("任务负责人可查看客户，但只有客户负责人可以修改或删除档案");
+        }
+    }
+
+    private boolean hasOpenAssignedTask(String customerId) {
+        Integer count = jdbc.queryForObject("""
+            SELECT COUNT(*) FROM tasks
+            WHERE store_id = ? AND customer_id = ? AND assigned_to = ?
+              AND status IN ('todo', 'doing', 'overdue')
+            """, Integer.class, cur.storeId(), customerId, cur.employeeId());
+        return count != null && count > 0;
+    }
+
 }

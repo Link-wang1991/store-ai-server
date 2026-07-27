@@ -1,0 +1,15 @@
+# 本机正式使用配置：兼容已经存在的早期 Flyway 历史，且不生成演示数据。
+spring:
+  flyway:
+    clean-disabled: true
+    out-of-order: true
+    validate-on-migrate: false
+
+logging:
+  level:
+    com.storeai: INFO
+
+# 仅供当前 Mac/局域网验收不同角色页面；prod/dev profile 默认仍为关闭。
+app:
+  local-preview-login:
+    enabled: true

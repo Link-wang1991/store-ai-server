@@ -1,6 +1,7 @@
 package com.storeai.knowledge.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.storeai.common.net.DirectProxySelector;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -29,6 +30,7 @@ public class EmbeddingService {
         this.model = "text-embedding-v3";
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
+                .proxy(DirectProxySelector.INSTANCE)
                 .build();
         this.mapper = new ObjectMapper();
     }
@@ -36,6 +38,8 @@ public class EmbeddingService {
     public boolean isConfigured() {
         return apiKey != null && !apiKey.isBlank();
     }
+
+    public String model() { return model; }
 
     /**
      * 将单条文本向量化。

@@ -15,6 +15,9 @@ public class KnowledgeChunk {
     private String storeId;
     private String documentId;
     private String content;
+    /** JSON 序列化的向量；不可用时为空并自动降级关键词检索。 */
+    private String embedding;
+    private String embeddingModel;
     private int seq;
     private OffsetDateTime createdAt;
 }

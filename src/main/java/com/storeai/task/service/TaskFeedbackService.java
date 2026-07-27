@@ -33,12 +33,19 @@ public class TaskFeedbackService {
         if ("done".equals(status)) {
             throw new RuntimeException("任务已完成");
         }
+        String assignedTo = (String) task.get("assigned_to");
+        if (!cur.isAdmin() && (assignedTo == null || !assignedTo.equals(cur.employeeId()))) {
+            throw com.storeai.common.exception.BizException.forbidden("只有任务负责人可以提交结果");
+        }
 
         String taskType = (String) task.get("type");
+        if ("memory_confirm".equals(taskType)) {
+            throw com.storeai.common.exception.BizException.badRequest("客户记忆请通过“确认 / 修正记忆”操作完成，不可直接标记完成");
+        }
         String title = (String) task.get("title");
         String content = (String) task.get("content");
-        String assignedTo = (String) task.get("assigned_to");
-        String customerId = extractCustomerId(content);
+        String customerId = task.get("customer_id") == null
+            ? extractCustomerId(content) : String.valueOf(task.get("customer_id"));
 
         // 2. 记录反馈
         String feedback = formatFeedback(outcome, note);
@@ -106,25 +113,29 @@ public class TaskFeedbackService {
     private void createFollowup(Map<String, Object> task, String title, String content, int daysLater) {
         String storeId = (String) task.get("store_id");
         String assignedTo = (String) task.get("assigned_to");
+        String customerId = task.get("customer_id") == null ? extractCustomerId((String) task.get("content"))
+            : String.valueOf(task.get("customer_id"));
+        String sourceMeetingId = task.get("source_meeting_id") == null ? null : String.valueOf(task.get("source_meeting_id"));
         if (assignedTo == null) assignedTo = cur.employeeId();
         OffsetDateTime dueAt = daysLater >= 0 ? OffsetDateTime.now().plusDays(daysLater) : null;
 
         jdbc.update(
-            "INSERT INTO tasks (id, store_id, title, content, type, status, assigned_to, created_by, due_at, created_at, updated_at) " +
-            "VALUES (?, ?, ?, ?, 'followup', 'todo', ?, ?, ?, ?, ?)",
-            UUID.randomUUID().toString().replace("-", ""), storeId,
+            "INSERT INTO tasks (id, store_id, customer_id, title, content, type, status, assigned_to, created_by, due_at, source_type, source_id, source_meeting_id, created_at, updated_at) " +
+            "VALUES (?, ?, ?, ?, ?, 'followup', 'todo', ?, ?, ?, 'task_feedback', ?, ?, ?, ?)",
+            UUID.randomUUID().toString().replace("-", ""), storeId, customerId,
             title.length() > 200 ? title.substring(0, 200) : title,
             content == null ? "" : content,
             assignedTo, cur.employeeId(),
             dueAt == null ? null : dueAt.toString(),
+            task.get("id"), sourceMeetingId,
             OffsetDateTime.now().toString(), OffsetDateTime.now().toString());
     }
 
     private void recordMemory(String customerId, String key, String value) {
         if (customerId == null || value == null || value.isBlank()) return;
         jdbc.update(
-            "INSERT INTO memory_items (id, store_id, customer_id, employee_id, scope, `key`, value, confidence, source_type, source_id, created_at) " +
-            "VALUES (?, ?, ?, ?, 'customer', ?, ?, 'medium', 'task_feedback', ?, ?)",
+            "INSERT INTO memory_items (id, store_id, customer_id, employee_id, scope, `key`, value, confidence, status, source_type, source_id, created_at) " +
+            "VALUES (?, ?, ?, ?, 'customer', ?, ?, 'medium', 'confirmed', 'task_feedback', ?, ?)",
             UUID.randomUUID().toString().replace("-", ""), cur.storeId(), customerId,
             cur.employeeId(), key, value, "task_" + UUID.randomUUID().toString().replace("-", ""),
             OffsetDateTime.now().toString());

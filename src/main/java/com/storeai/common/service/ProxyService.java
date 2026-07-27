@@ -1,11 +1,20 @@
 package com.storeai.common.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.storeai.common.exception.BizException;
 import com.storeai.common.util.CurrentUser;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.ColumnMapRowMapper;
+import org.springframework.jdbc.core.SqlParameterValue;
 import org.springframework.stereotype.Service;
 
+import java.sql.Timestamp;
+import java.sql.Types;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -18,10 +27,12 @@ public class ProxyService {
 
     private final JdbcTemplate jdbc;
     private final TableSchema schema;
+    private final ObjectMapper objectMapper;
 
-    public ProxyService(JdbcTemplate jdbc) {
+    public ProxyService(JdbcTemplate jdbc, ObjectMapper objectMapper) {
         this.jdbc = jdbc;
         this.schema = new TableSchema();
+        this.objectMapper = objectMapper;
     }
 
     // ================================================================
@@ -146,7 +157,7 @@ public class ProxyService {
         var keys = new ArrayList<>(safeData.keySet());
         String cols = String.join(", ", keys);
         String vals = keys.stream().map(k -> "?").collect(Collectors.joining(", "));
-        var params = keys.stream().map(safeData::get).collect(Collectors.toList());
+        var params = keys.stream().map(key -> writeParameter(tbl, key, safeData.get(key))).collect(Collectors.toList());
 
         jdbc.update("INSERT INTO " + tbl + " (" + cols + ") VALUES (" + vals + ")", params.toArray());
 
@@ -173,7 +184,7 @@ public class ProxyService {
 
         var keys = new ArrayList<>(safeData.keySet());
         String sets = keys.stream().map(k -> k + " = ?").collect(Collectors.joining(", "));
-        var params = keys.stream().map(safeData::get).collect(Collectors.toList());
+        var params = keys.stream().map(key -> writeParameter(tbl, key, safeData.get(key))).collect(Collectors.toList());
 
         StringBuilder sql = new StringBuilder("UPDATE " + tbl + " SET " + sets + " WHERE id = ?");
         params.add(id);
@@ -230,6 +241,75 @@ public class ProxyService {
             safe.put(key, value);
         });
         return safe;
+    }
+
+    /**
+     * 浏览器提交的 JSON 数组/对象会被 Jackson 还原为 List/Map。若把它们直接交给
+     * MySQL JDBC，驱动会按 binary 对象绑定，写入 JSON 列时便会报
+     * “Cannot create a JSON value from a string with CHARACTER SET 'binary'”。
+     *
+     * 统一序列化为 JSON 文本并显式按 VARCHAR 绑定，既适用于 JSON 列，也让 TEXT
+     * 类型的 tags 等字段获得稳定、可读的存储格式。
+     */
+    private Object writeParameter(String table, String column, Object value) {
+        if (value == null) return null;
+        if (value instanceof Collection<?> || value instanceof Map<?, ?> || value.getClass().isArray()) {
+            try {
+                return new SqlParameterValue(Types.VARCHAR, objectMapper.writeValueAsString(value));
+            } catch (JsonProcessingException e) {
+                throw BizException.badRequest("字段 " + column + " 无法转换为 JSON");
+            }
+        }
+        // 已经是 JSON 文本的值也明确按字符集写入，避免 MySQL 把 PreparedStatement
+        // 未指定类型的参数推断为 binary。
+        if (isJsonColumn(table, column) && value instanceof String text) {
+            return new SqlParameterValue(Types.VARCHAR, text);
+        }
+        // 浏览器和 Next Server Action 会自然产生 ISO 8601 字符串
+        // （2026-07-27T03:57:00.251Z）。MySQL DATETIME 不接受该文本格式，
+        // 必须作为 TIMESTAMP 参数传入；否则客户导入会在第一个 AI 建议时间处失败。
+        if (isDateTimeColumn(column) && value instanceof String text && text.contains("T")) {
+            Timestamp timestamp = parseIsoTimestamp(text);
+            if (timestamp != null) return new SqlParameterValue(Types.TIMESTAMP, timestamp);
+        }
+        return value;
+    }
+
+    private boolean isDateTimeColumn(String column) {
+        return "created_at".equals(column) || "updated_at".equals(column) || column.endsWith("_at");
+    }
+
+    private Timestamp parseIsoTimestamp(String text) {
+        try {
+            return Timestamp.from(Instant.parse(text));
+        } catch (DateTimeParseException ignored) {
+            // 带 +08:00 等 offset 的 ISO 字符串。
+            try {
+                return Timestamp.from(OffsetDateTime.parse(text).toInstant());
+            } catch (DateTimeParseException ignoredAgain) {
+                // 兼容没有时区、但仍使用 T 的本地 ISO 字符串。
+                try {
+                    return Timestamp.valueOf(LocalDateTime.parse(text));
+                } catch (DateTimeParseException ignoredLocal) {
+                    return null;
+                }
+            }
+        }
+    }
+
+    private boolean isJsonColumn(String table, String column) {
+        return switch (table) {
+            case "roles" -> "permissions".equals(column);
+            case "knowledge_documents" -> "visible_roles".equals(column);
+            case "chat_messages" -> "retrieved_chunks".equals(column);
+            case "customers" -> "portrait".equals(column);
+            case "announcements" -> "visible_roles".equals(column) || "target_employees".equals(column);
+            case "reports" -> "content".equals(column);
+            case "meeting_analysis" -> "report".equals(column) || "analysis_json".equals(column);
+            case "role_permissions" -> "actions".equals(column);
+            case "activities" -> "tags".equals(column);
+            default -> false;
+        };
     }
 
     private Map<String, Object> redactSensitiveFields(String table, Map<String, Object> row) {

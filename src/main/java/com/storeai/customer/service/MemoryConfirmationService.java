@@ -28,9 +28,9 @@ public class MemoryConfirmationService {
         Map<String, Object> task = validateAndGet(taskId);
         String content = (String) task.get("content");
 
-        String analysisId = extractAnalysisId(content);
+        String analysisId = task.get("source_id") == null ? extractAnalysisId(content) : String.valueOf(task.get("source_id"));
         String key = extractKey(content);
-        String customerId = extractCustomerId(content);
+        String customerId = task.get("customer_id") == null ? extractCustomerId(content) : String.valueOf(task.get("customer_id"));
 
         if (analysisId == null || key == null) {
             throw BizException.badRequest("无法从任务内容解析记忆信息");
@@ -38,21 +38,26 @@ public class MemoryConfirmationService {
 
         if (confirmed) {
             jdbc.update(
-                "UPDATE memory_items SET confidence = 'high', updated_at = ? " +
+                "UPDATE memory_items SET status = 'confirmed', confidence = 'high', confirmed_by = ?, confirmed_at = ?, updated_at = ? " +
                 "WHERE source_type = 'meeting_analysis' AND source_id = ? AND `key` = ? AND store_id = ?",
-                OffsetDateTime.now().toString(), analysisId, key, cur.storeId());
+                cur.employeeId(), OffsetDateTime.now().toString(), OffsetDateTime.now().toString(), analysisId, key, cur.storeId());
         }
 
         if (correctedValue != null && !correctedValue.isBlank()) {
             jdbc.update(
-                "UPDATE memory_items SET value = ?, confidence = 'high', updated_at = ? " +
+                "UPDATE memory_items SET value = ?, status = 'confirmed', confidence = 'high', confirmed_by = ?, confirmed_at = ?, updated_at = ? " +
                 "WHERE source_type = 'meeting_analysis' AND source_id = ? AND `key` = ? AND store_id = ?",
-                correctedValue, OffsetDateTime.now().toString(), analysisId, key, cur.storeId());
+                correctedValue, cur.employeeId(), OffsetDateTime.now().toString(), OffsetDateTime.now().toString(), analysisId, key, cur.storeId());
 
             // 同时更新 customers 对应字段做汇总
             if (customerId != null) {
                 updateCustomerField(customerId, key, correctedValue);
             }
+        } else if (!confirmed) {
+            jdbc.update(
+                "UPDATE memory_items SET status = 'rejected', confirmed_by = ?, confirmed_at = ?, updated_at = ? " +
+                "WHERE source_type = 'meeting_analysis' AND source_id = ? AND `key` = ? AND store_id = ?",
+                cur.employeeId(), OffsetDateTime.now().toString(), OffsetDateTime.now().toString(), analysisId, key, cur.storeId());
         }
 
         jdbc.update(
@@ -71,6 +76,10 @@ public class MemoryConfirmationService {
         }
         if (!"memory_confirm".equals(task.get("type"))) {
             throw BizException.badRequest("该任务不是记忆确认任务");
+        }
+        Object assignedTo = task.get("assigned_to");
+        if (!cur.isAdmin() && (assignedTo == null || !cur.employeeId().equals(String.valueOf(assignedTo)))) {
+            throw BizException.forbidden("只有任务负责人可以确认客户记忆");
         }
         return task;
     }

@@ -28,6 +28,7 @@ public class Customer {
     private String importRaw;        // 导入原始数据 JSON（含 insight）
     private OffsetDateTime lastActiveAt; // 上次互动时间
     private OffsetDateTime lastVisitAt;
+    private OffsetDateTime lastDealAt;
     private OffsetDateTime nextFollowAt;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;

@@ -20,14 +20,18 @@ public class KnowledgeGapService {
 
     private final JdbcTemplate jdbc;
     private final CurrentUser cur;
+    private final KnowledgeService knowledgeService;
 
     public List<Map<String, Object>> list() {
+        if (!cur.isAdmin()) throw BizException.forbidden();
         return jdbc.queryForList(
             "SELECT * FROM knowledge_gaps WHERE store_id = ? ORDER BY created_at DESC",
             cur.storeId());
     }
 
     public Map<String, Object> resolve(String id, String answer) {
+        if (!cur.isAdmin()) throw BizException.forbidden();
+        if (answer == null || answer.isBlank()) throw BizException.badRequest("请填写审核结论");
         validateStore(id);
         jdbc.update(
             "UPDATE knowledge_gaps SET status = 'resolved', answer = ?, resolved_by = ?, resolved_at = ? WHERE id = ?",
@@ -37,25 +41,20 @@ public class KnowledgeGapService {
     }
 
     public Map<String, Object> toKnowledge(String id, String title, String content, String category) {
+        if (!cur.isAdmin()) throw BizException.forbidden();
+        if (title == null || title.isBlank() || content == null || content.isBlank()) {
+            throw BizException.badRequest("请补齐知识标题和正式内容");
+        }
         validateStore(id);
 
-        String docId = UUID.randomUUID().toString().replace("-", "");
-        jdbc.update(
-            "INSERT INTO knowledge_documents (id, store_id, title, category, status, uploaded_by, visible_roles, created_at, updated_at) " +
-            "VALUES (?, ?, ?, ?, 'active', ?, '[\"owner\",\"manager\",\"consultant\"]', ?, ?)",
-            docId, cur.storeId(), title, category == null ? "script" : category, cur.employeeId(),
-            OffsetDateTime.now().toString(), OffsetDateTime.now().toString());
-
-        jdbc.update(
-            "INSERT INTO knowledge_chunks (id, store_id, document_id, content, seq, created_at) VALUES (?, ?, ?, ?, 0, ?)",
-            UUID.randomUUID().toString().replace("-", ""), cur.storeId(), docId, content,
-            OffsetDateTime.now().toString());
+        var document = knowledgeService.createManual(title, category == null ? "script" : category,
+            content, List.of("owner", "manager", "consultant", "beautician", "receptionist", "operator"));
 
         jdbc.update(
             "UPDATE knowledge_gaps SET status = 'converted', resolved_by = ?, resolved_at = ? WHERE id = ?",
             cur.employeeId(), OffsetDateTime.now().toString(), id);
 
-        closeRelatedReviewTask(id, "已转化为知识库文档：" + docId);
+        closeRelatedReviewTask(id, "已转化为知识库文档：" + document.getId());
         return getById(id);
     }
 
