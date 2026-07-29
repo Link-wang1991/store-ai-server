@@ -6,6 +6,7 @@ import com.storeai.common.exception.BizException;
 import com.storeai.task.entity.Task;
 import com.storeai.task.repository.TaskRepository;
 import com.storeai.task.service.TaskFeedbackService;
+import com.storeai.task.service.TaskTraceService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -23,18 +24,14 @@ public class TaskController {
 
     private final TaskRepository taskRepo;
     private final TaskFeedbackService taskFeedbackService;
+    private final TaskTraceService taskTraceService;
     private final CurrentUser cur;
 
     @GetMapping
-    public ApiResponse<List<Task>> list(@RequestParam(required = false) String status) {
-        var qw = new LambdaQueryWrapper<Task>()
-                .eq(Task::getStoreId, cur.storeId())
-                .eq(Task::getAssignedTo, cur.employeeId());
-        if (status != null) {
-            qw.eq(Task::getStatus, status);
-        }
-        qw.orderByDesc(Task::getCreatedAt);
-        return ApiResponse.ok(taskRepo.selectList(qw));
+    public ApiResponse<List<Map<String, Object>>> list(@RequestParam(required = false) String status) {
+        // 与首页共用来源装配：任务不只是一条文本，还必须能回到客户、会谈、AI 对话
+        // 和当时引用的资料快照。
+        return ApiResponse.ok(taskTraceService.listForCurrentEmployee(status));
     }
 
     @PostMapping

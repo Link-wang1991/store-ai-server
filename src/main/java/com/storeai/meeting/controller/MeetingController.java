@@ -95,6 +95,12 @@ public class MeetingController {
         result.put("status", m.getStatus());
         result.put("audio_url", m.getAudioUrl());
         result.put("asr_task_id", m.getAsrTaskId());
+        result.put("asr_submit_attempts", m.getAsrSubmitAttempts());
+        result.put("asr_submit_started_at", m.getAsrSubmitStartedAt());
+        result.put("asr_poll_failures", m.getAsrPollFailures());
+        result.put("asr_last_polled_at", m.getAsrLastPolledAt());
+        result.put("asr_retry_at", m.getAsrRetryAt());
+        result.put("asr_error_code", m.getAsrErrorCode());
         result.put("transcript_status", m.getTranscriptStatus());
         result.put("fail_reason", m.getFailReason());
         result.put("analysis_status", m.getAnalysisStatus());
@@ -277,6 +283,12 @@ public class MeetingController {
                     .set(Meeting::getStatus, "queued")
                     .set(Meeting::getAudioUrl, filePath)
                     .set(Meeting::getAsrTaskId, null)
+                    .set(Meeting::getAsrSubmitAttempts, 0)
+                    .set(Meeting::getAsrSubmitStartedAt, null)
+                    .set(Meeting::getAsrPollFailures, 0)
+                    .set(Meeting::getAsrLastPolledAt, null)
+                    .set(Meeting::getAsrRetryAt, null)
+                    .set(Meeting::getAsrErrorCode, null)
                     .set(Meeting::getTranscriptStatus, "pending")
                     .set(Meeting::getFailReason, null)
                     .set(Meeting::getUpdatedAt, OffsetDateTime.now());
@@ -304,6 +316,7 @@ public class MeetingController {
             SET status = 'queued', transcript_status = 'pending', asr_task_id = NULL,
                 asr_submit_attempts = 0, asr_submit_started_at = NULL,
                 asr_poll_failures = 0, asr_last_polled_at = NULL,
+                asr_retry_at = NULL, asr_error_code = NULL,
                 fail_reason = NULL, updated_at = NOW()
             WHERE id = ?
             """, id);

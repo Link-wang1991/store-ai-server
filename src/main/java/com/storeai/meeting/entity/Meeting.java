@@ -22,6 +22,12 @@ public class Meeting {
     private Integer duration;
     private String audioUrl;
     private String asrTaskId;
+    private Integer asrSubmitAttempts;
+    private OffsetDateTime asrSubmitStartedAt;
+    private Integer asrPollFailures;
+    private OffsetDateTime asrLastPolledAt;
+    private OffsetDateTime asrRetryAt;
+    private String asrErrorCode;
     private String transcriptStatus;
     private String failReason;
     private String analysisStatus;

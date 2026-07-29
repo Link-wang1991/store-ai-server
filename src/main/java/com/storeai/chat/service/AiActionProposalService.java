@@ -142,19 +142,24 @@ public class AiActionProposalService {
 
     private ActionProposal findByMessage(String messageId) {
         var rows = jdbc.queryForList("""
-            SELECT id, store_id, employee_id, message_id, customer_id, action_type, title, content,
-                   assigned_to, priority, due_at, status, applied_task_id
-            FROM ai_action_proposals
-            WHERE message_id = ? AND store_id = ? AND employee_id = ? LIMIT 1
+            SELECT ap.id, ap.store_id, ap.employee_id, ap.message_id, ap.customer_id, ap.action_type, ap.title, ap.content,
+                   ap.assigned_to, ap.priority, ap.due_at, ap.status, ap.applied_task_id,
+                   t.status AS applied_task_status, t.feedback AS applied_task_feedback, t.updated_at AS applied_task_updated_at
+            FROM ai_action_proposals ap
+            LEFT JOIN tasks t ON t.id = ap.applied_task_id AND t.store_id = ap.store_id
+            WHERE ap.message_id = ? AND ap.store_id = ? AND ap.employee_id = ? LIMIT 1
             """, messageId, cur.storeId(), cur.employeeId());
         return rows.isEmpty() ? null : toProposal(rows.get(0));
     }
 
     private ActionProposal findById(String id) {
         var rows = jdbc.queryForList("""
-            SELECT id, store_id, employee_id, message_id, customer_id, action_type, title, content,
-                   assigned_to, priority, due_at, status, applied_task_id
-            FROM ai_action_proposals WHERE id = ? LIMIT 1
+            SELECT ap.id, ap.store_id, ap.employee_id, ap.message_id, ap.customer_id, ap.action_type, ap.title, ap.content,
+                   ap.assigned_to, ap.priority, ap.due_at, ap.status, ap.applied_task_id,
+                   t.status AS applied_task_status, t.feedback AS applied_task_feedback, t.updated_at AS applied_task_updated_at
+            FROM ai_action_proposals ap
+            LEFT JOIN tasks t ON t.id = ap.applied_task_id AND t.store_id = ap.store_id
+            WHERE ap.id = ? LIMIT 1
             """, id);
         return rows.isEmpty() ? null : toProposal(rows.get(0));
     }
@@ -165,7 +170,10 @@ public class AiActionProposalService {
             string(row.get("message_id")), string(row.get("customer_id")), string(row.get("action_type")),
             string(row.get("title")), string(row.get("content")), string(row.get("assigned_to")), string(row.get("priority")),
             row.get("due_at") == null ? null : String.valueOf(row.get("due_at")),
-            string(row.get("status")), row.get("applied_task_id") == null ? null : String.valueOf(row.get("applied_task_id"))
+            string(row.get("status")), row.get("applied_task_id") == null ? null : String.valueOf(row.get("applied_task_id")),
+            row.get("applied_task_status") == null ? null : String.valueOf(row.get("applied_task_status")),
+            row.get("applied_task_feedback") == null ? null : String.valueOf(row.get("applied_task_feedback")),
+            row.get("applied_task_updated_at") == null ? null : String.valueOf(row.get("applied_task_updated_at"))
         );
     }
 
@@ -225,7 +233,8 @@ public class AiActionProposalService {
     public record ActionProposal(
         String id, String storeId, String employeeId, String messageId, String customerId,
         String actionType, String title, String content, String assignedTo, String priority,
-        String dueAt, String status, String appliedTaskId
+        String dueAt, String status, String appliedTaskId,
+        String appliedTaskStatus, String appliedTaskFeedback, String appliedTaskUpdatedAt
     ) {}
 
     public record EmployeeOption(String id, String name, String role) {}

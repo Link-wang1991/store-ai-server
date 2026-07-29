@@ -37,7 +37,9 @@ import java.util.UUID;
 public class MeetingTranscriptionService {
 
     private static final String DS_BASE = "https://dashscope.aliyuncs.com/api/v1";
-    private static final int MAX_SUBMIT_ATTEMPTS = 3;
+    /** 一次网络抖动不应让首次会谈直接失败；四次仍失败才转为人工处理。 */
+    private static final int MAX_SUBMIT_ATTEMPTS = 4;
+    private static final int[] RETRY_DELAYS_SECONDS = {30, 90, 300, 900};
 
     private final JdbcTemplate jdbc;
     private final StorageService storageService;
@@ -61,7 +63,7 @@ public class MeetingTranscriptionService {
             meetingAsrExecutor.execute(() -> submit(meetingId));
         } catch (Exception e) {
             log.warn("ASR 队列暂不可用: meeting={}", meetingId, e);
-            markRetryOrFailure(meetingId, "转写任务暂时无法排队，请稍后重试。");
+            markRetryOrFailure(meetingId, new FailureInfo("queue_unavailable", "转写任务暂时无法排队", false));
         }
     }
 
@@ -73,7 +75,9 @@ public class MeetingTranscriptionService {
     public void recoverQueuedMeetings() {
         jdbc.update("""
             UPDATE meetings
-            SET status = 'queued', transcript_status = 'pending', updated_at = NOW()
+            SET status = 'queued', transcript_status = 'pending',
+                asr_retry_at = NOW(), asr_error_code = 'submit_stalled',
+                fail_reason = '转写提交超时，正在重新排队。', updated_at = NOW()
             WHERE status = 'submitting'
               AND asr_task_id IS NULL
               AND asr_submit_started_at < DATE_SUB(NOW(), INTERVAL 5 MINUTE)
@@ -85,6 +89,7 @@ public class MeetingTranscriptionService {
               AND asr_task_id IS NULL
               AND audio_url IS NOT NULL
               AND COALESCE(asr_submit_attempts, 0) < ?
+              AND (asr_retry_at IS NULL OR asr_retry_at <= NOW())
             ORDER BY updated_at ASC
             LIMIT 20
             """, String.class, MAX_SUBMIT_ATTEMPTS);
@@ -100,6 +105,8 @@ public class MeetingTranscriptionService {
                 asr_submit_started_at = NOW(),
                 asr_poll_failures = 0,
                 asr_last_polled_at = NULL,
+                asr_retry_at = NULL,
+                asr_error_code = NULL,
                 fail_reason = NULL,
                 updated_at = NOW()
             WHERE id = ?
@@ -109,7 +116,7 @@ public class MeetingTranscriptionService {
         if (claimed != 1) return;
 
         if (qwenKey == null || qwenKey.isBlank()) {
-            markFailed(meetingId, "语音识别服务尚未配置，请联系管理员后重新提交。");
+            markFailed(meetingId, "语音识别服务尚未配置，请联系管理员后重新提交。", "service_not_configured");
             return;
         }
 
@@ -144,6 +151,8 @@ public class MeetingTranscriptionService {
                     asr_task_id = ?,
                     asr_poll_failures = 0,
                     asr_last_polled_at = NULL,
+                    asr_retry_at = NULL,
+                    asr_error_code = NULL,
                     fail_reason = NULL,
                     updated_at = NOW()
                 WHERE id = ?
@@ -151,7 +160,7 @@ public class MeetingTranscriptionService {
             log.info("ASR 已提交: meeting={}, task={}", meetingId, taskId);
         } catch (Exception e) {
             log.warn("ASR 提交失败，将按策略重试: meeting={}, reason={}", meetingId, e.getMessage());
-            markRetryOrFailure(meetingId, "语音识别提交失败，系统将自动重试。");
+            markRetryOrFailure(meetingId, classifySubmissionFailure(e));
         } finally {
             if (temporaryFile != null) {
                 try { Files.deleteIfExists(temporaryFile); } catch (Exception ignored) { }
@@ -184,7 +193,7 @@ public class MeetingTranscriptionService {
                 .build();
         HttpResponse<String> uploadResponse = httpClient.send(uploadRequest, HttpResponse.BodyHandlers.ofString());
         if (uploadResponse.statusCode() != 200) {
-            throw new IllegalStateException("DashScope 文件上传返回 " + uploadResponse.statusCode());
+            throw providerFailure("upload", uploadResponse.statusCode(), uploadResponse.body());
         }
 
         Map<?, ?> uploadPayload = jsonMapper.readValue(uploadResponse.body(), Map.class);
@@ -193,8 +202,8 @@ public class MeetingTranscriptionService {
         if (uploadedFiles.isEmpty()) {
             List<?> failedUploads = asList(uploadData.get("failed_uploads"));
             Object message = failedUploads.isEmpty() ? null : asMap(failedUploads.get(0)).get("message");
-            String reason = message == null ? "DashScope 未返回上传文件" : String.valueOf(message);
-            throw new IllegalStateException(reason);
+            String reason = message == null ? "服务未返回上传文件" : String.valueOf(message);
+            throw new AsrSubmitException("audio_rejected", "录音文件未被语音服务接受", isPermanentAudioFailure(reason));
         }
         String fileId = String.valueOf(asMap(uploadedFiles.get(0)).get("file_id"));
         if (fileId.isBlank() || "null".equals(fileId)) throw new IllegalStateException("DashScope 未返回文件标识");
@@ -212,6 +221,8 @@ public class MeetingTranscriptionService {
                 Map<?, ?> infoPayload = jsonMapper.readValue(infoResponse.body(), Map.class);
                 Object url = asMap(infoPayload.get("data")).get("url");
                 if (url != null) ossUrl = String.valueOf(url);
+            } else if (infoResponse.statusCode() == 401 || infoResponse.statusCode() == 403) {
+                throw providerFailure("file_info", infoResponse.statusCode(), infoResponse.body());
             }
         }
         if (ossUrl == null || ossUrl.isBlank()) throw new IllegalStateException("未获取到转写文件地址");
@@ -231,7 +242,7 @@ public class MeetingTranscriptionService {
                 .build();
         HttpResponse<String> asrResponse = httpClient.send(asrRequest, HttpResponse.BodyHandlers.ofString());
         if (asrResponse.statusCode() != 200) {
-            throw new IllegalStateException("DashScope 转写任务返回 " + asrResponse.statusCode());
+            throw providerFailure("asr_submit", asrResponse.statusCode(), asrResponse.body());
         }
         Map<?, ?> asrPayload = jsonMapper.readValue(asrResponse.body(), Map.class);
         Object taskId = asMap(asrPayload.get("output")).get("task_id");
@@ -241,31 +252,92 @@ public class MeetingTranscriptionService {
         return String.valueOf(taskId);
     }
 
-    private void markRetryOrFailure(String meetingId, String retryReason) {
+    private void markRetryOrFailure(String meetingId, FailureInfo failure) {
         Integer attempts = jdbc.queryForObject(
                 "SELECT COALESCE(asr_submit_attempts, 0) FROM meetings WHERE id = ?", Integer.class, meetingId);
-        if (attempts != null && attempts >= MAX_SUBMIT_ATTEMPTS) {
-            markFailed(meetingId, "语音识别连续提交失败，请检查网络或重新录音后再试。");
+        if (failure.terminal()) {
+            markFailed(meetingId, failure.message() + "，请检查录音或联系管理员后重新提交。", failure.code());
             return;
         }
+        if (attempts != null && attempts >= MAX_SUBMIT_ATTEMPTS) {
+            markFailed(meetingId, "语音识别多次提交未成功。请检查网络后重新提交；录音仍已保留。", failure.code());
+            return;
+        }
+        int attempt = Math.max(1, attempts == null ? 1 : attempts);
+        int delay = RETRY_DELAYS_SECONDS[Math.min(attempt - 1, RETRY_DELAYS_SECONDS.length - 1)];
         jdbc.update("""
             UPDATE meetings
             SET status = 'queued',
                 transcript_status = 'pending',
                 asr_poll_failures = 0,
                 asr_last_polled_at = NULL,
+                asr_retry_at = DATE_ADD(NOW(), INTERVAL %d SECOND),
+                asr_error_code = ?,
                 fail_reason = ?,
                 updated_at = NOW()
             WHERE id = ?
-            """, retryReason, meetingId);
+            """.formatted(delay), failure.code(), failure.message() + "，将于约 " + delay + " 秒后自动重试。", meetingId);
     }
 
-    private void markFailed(String meetingId, String reason) {
+    private void markFailed(String meetingId, String reason, String errorCode) {
         jdbc.update("""
             UPDATE meetings
-            SET status = 'failed', transcript_status = 'failed', fail_reason = ?, updated_at = NOW()
+            SET status = 'failed', transcript_status = 'failed', asr_retry_at = NULL,
+                asr_error_code = ?, fail_reason = ?, updated_at = NOW()
             WHERE id = ?
-            """, reason, meetingId);
+            """, errorCode, reason, meetingId);
+    }
+
+    private FailureInfo classifySubmissionFailure(Exception error) {
+        if (error instanceof AsrSubmitException provider) {
+            return new FailureInfo(provider.code, provider.getMessage(), provider.terminal);
+        }
+        String detail = error.getMessage() == null ? "" : error.getMessage().toLowerCase();
+        if (detail.contains("未找到录音") || detail.contains("不存在或为空")) {
+            return new FailureInfo("audio_missing", "未找到可提交的录音文件", true);
+        }
+        if (detail.contains("timeout") || detail.contains("timed out") || detail.contains("connect")
+                || detail.contains("connection") || detail.contains("reset")) {
+            return new FailureInfo("network_unavailable", "暂时无法连接语音识别服务", false);
+        }
+        return new FailureInfo("submit_unavailable", "语音识别服务暂时不可用", false);
+    }
+
+    private AsrSubmitException providerFailure(String stage, int status, String body) {
+        if (status == 401 || status == 403) {
+            return new AsrSubmitException("service_authorization", "语音识别服务授权异常", true);
+        }
+        if (status == 413) {
+            return new AsrSubmitException("audio_too_large", "录音文件超过语音服务支持的大小", true);
+        }
+        if (status == 415 || (status >= 400 && status < 500 && status != 408 && status != 429)) {
+            return new AsrSubmitException("audio_rejected", "录音格式或文件内容不被语音服务支持", true);
+        }
+        log.warn("DashScope {} temporary response: status={}, body={}", stage, status, safeBody(body));
+        return new AsrSubmitException("service_unavailable", "语音识别服务暂时不可用", false);
+    }
+
+    private static boolean isPermanentAudioFailure(String reason) {
+        String text = reason == null ? "" : reason.toLowerCase();
+        return text.contains("invalid") || text.contains("unsupported") || text.contains("format") || text.contains("文件格式");
+    }
+
+    private static String safeBody(String body) {
+        if (body == null) return "";
+        return body.replaceAll("[\\r\\n]", " ").substring(0, Math.min(body.length(), 300));
+    }
+
+    private record FailureInfo(String code, String message, boolean terminal) { }
+
+    private static final class AsrSubmitException extends Exception {
+        private final String code;
+        private final boolean terminal;
+
+        private AsrSubmitException(String code, String message, boolean terminal) {
+            super(message);
+            this.code = code;
+            this.terminal = terminal;
+        }
     }
 
     @SuppressWarnings("unchecked")

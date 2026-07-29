@@ -403,7 +403,9 @@ public class ChatPipelineService {
         msg.setCustomerId(customerId);
         try {
             msg.setRetrievedChunks(mapper.writeValueAsString(chunks.stream()
-                .map(c -> new RetrievedInfo(c.id(), c.documentTitle(), c.content().substring(0, Math.min(180, c.content().length()))))
+                // documentId 与 chunkId 同时保存：前者用于让员工回到原资料核验，
+                // 后者用于定位命中的具体片段。旧记录缺少 documentId 时仍可兼容读取。
+                .map(c -> new RetrievedInfo(c.id(), c.documentId(), c.documentTitle(), c.content().substring(0, Math.min(180, c.content().length()))))
                 .toList()));
         } catch (Exception ignored) { }
         try {
@@ -426,7 +428,7 @@ public class ChatPipelineService {
         }
 
         List<RetrievedInfo> retrieved = chunks.stream()
-            .map(c -> new RetrievedInfo(c.id(), c.documentTitle(), c.content().substring(0, Math.min(100, c.content().length()))))
+            .map(c -> new RetrievedInfo(c.id(), c.documentId(), c.documentTitle(), c.content().substring(0, Math.min(100, c.content().length()))))
             .toList();
         List<MethodologyInfo> methodology = playbooks.stream()
             .map(item -> new MethodologyInfo(item.id(), item.scenarioKey(), item.title(), item.category(), item.source()))
@@ -526,7 +528,8 @@ public class ChatPipelineService {
         List<String> bannedHit
     ) {}
 
-    public record RetrievedInfo(String chunkId, String documentTitle, String snippet) {}
+    /** 门店资料引用快照。documentId 是可信追溯主键，chunkId 是本次命中的具体片段。 */
+    public record RetrievedInfo(String chunkId, String documentId, String documentTitle, String snippet) {}
 
     public record MethodologyInfo(String id, String scenarioKey, String title, String module, String source) {}
 

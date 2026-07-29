@@ -38,11 +38,7 @@ public class MeetingAnalysisService {
     private final ExperienceReviewService experienceReviewService;
     private final KnowledgeService knowledgeService;
     private final SystemPlaybookService systemPlaybookService;
-
-    /** 高质量会谈阈值：达到则自动沉淀优质经验 + 生成训练任务 */
-    private static final int DISTILL_THRESHOLD = 75;
-    /** 量化评分权重（需求挖掘/成交推进/合规表现/服务体验） */
-    private static final double[] SCORE_WEIGHTS = {0.25, 0.30, 0.20, 0.25};
+    private final MeetingQualityScorer meetingQualityScorer;
 
     @Value("${ai.qwen.api-key:}")
     private String dashscopeKey;
@@ -60,7 +56,8 @@ public class MeetingAnalysisService {
         "summary", "explicit_needs", "implicit_needs", "emotional_needs", "decision_barriers",
         "employee_did_well", "employee_to_improve", "missed_opportunities", "service_experience_risk",
         "compliance_risks", "followup_goal", "suggested_script", "customer_decision_stage",
-        "judgement_basis", "professional_assessment", "next_step_plan", "knowledge_basis", "methodology_basis"
+        "judgement_basis", "professional_assessment", "next_step_plan", "knowledge_basis", "methodology_basis",
+        "need_digging_evidence", "deal_advancing_evidence", "compliance_evidence", "service_evidence"
     );
 
     private static final String DS_BASE = "https://dashscope.aliyuncs.com/api/v1";
@@ -83,7 +80,7 @@ public class MeetingAnalysisService {
 
         try {
             if ("queued".equals(status) || "submitting".equals(status)) {
-                return Map.of("status", status);
+                return currentStatus(meetingId);
             }
             if ("transcribing".equals(status)) {
                 return handleTranscribing(row);
@@ -162,33 +159,41 @@ public class MeetingAnalysisService {
         String asrTaskId = (String) row.get("asr_task_id");
 
         if (asrTaskId == null) {
-            jdbc.update("UPDATE meetings SET status = 'queued', transcript_status = 'pending', updated_at = NOW() WHERE id = ?", id);
-            return Map.of("status", "queued");
+            jdbc.update("UPDATE meetings SET status = 'queued', transcript_status = 'pending', asr_retry_at = NOW(), updated_at = NOW() WHERE id = ?", id);
+            return currentStatus(id);
         }
         if (dashscopeKey == null || dashscopeKey.isBlank()) {
             return failTranscription(id, "语音识别服务尚未配置，请联系管理员后重新提交。");
         }
 
         // 轮询 DashScope
-        var req = HttpRequest.newBuilder()
-                .uri(URI.create(DS_BASE + "/tasks/" + asrTaskId))
-                .header("Authorization", "Bearer " + dashscopeKey)
-                .GET().build();
-        var res = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
-        if (res.statusCode() != 200) {
-            log.warn("DashScope 查询失败: task={}, status={}", asrTaskId, res.statusCode());
-            return recordTranscriptionPollFailure(id);
+        Map<String, Object> data;
+        try {
+            var req = HttpRequest.newBuilder()
+                    .uri(URI.create(DS_BASE + "/tasks/" + asrTaskId))
+                    .timeout(Duration.ofSeconds(30))
+                    .header("Authorization", "Bearer " + dashscopeKey)
+                    .GET().build();
+            var res = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+            if (res.statusCode() != 200) {
+                log.warn("DashScope 查询失败: task={}, status={}", asrTaskId, res.statusCode());
+                return recordTranscriptionPollFailure(id, "语音识别服务暂时无法查询，正在重试。", "poll_unavailable");
+            }
+            data = jsonMapper.readValue(res.body(), Map.class);
+        } catch (Exception e) {
+            log.warn("DashScope 查询异常: task={}, reason={}", asrTaskId, e.getMessage());
+            return recordTranscriptionPollFailure(id, "语音识别服务连接暂时中断，正在重试。", "poll_network");
         }
 
-        jdbc.update("UPDATE meetings SET asr_poll_failures = 0, asr_last_polled_at = NOW(), fail_reason = NULL WHERE id = ?", id);
-
-        Map<String, Object> data = jsonMapper.readValue(res.body(), Map.class);
-        Map<String, Object> output = (Map<String, Object>) data.get("output");
-        if (output == null) return recordTranscriptionPollFailure(id);
+        Map<String, Object> output = asObjectMap(data.get("output"));
+        if (output.isEmpty()) {
+            return recordTranscriptionPollFailure(id);
+        }
         String taskStatus = String.valueOf(output.get("task_status"));
 
         if ("PENDING".equals(taskStatus) || "RUNNING".equals(taskStatus)) {
-            return Map.of("status", "transcribing");
+            jdbc.update("UPDATE meetings SET asr_poll_failures = 0, asr_last_polled_at = NOW(), asr_error_code = NULL, fail_reason = NULL WHERE id = ?", id);
+            return currentStatus(id);
         }
 
         if (!"SUCCEEDED".equals(taskStatus)) {
@@ -222,21 +227,28 @@ public class MeetingAnalysisService {
         }
 
         // 解析转写结果
-        var results = (List<Map<String, Object>>) output.get("results");
+        List<Map<String, Object>> results = asMapList(output.get("results"));
+        if (results.isEmpty()) {
+            return recordTranscriptionResultFailure(id, "语音识别已完成但暂未返回结果文件，正在恢复。", "result_missing");
+        }
         List<Map<String, Object>> segments = new ArrayList<>();
+        boolean anyResultDownloaded = false;
 
         for (var r : results) {
             String url = (String) r.get("transcription_url");
             if (url == null) continue;
             try {
-                var trReq = HttpRequest.newBuilder().uri(URI.create(url)).GET().build();
+                var trReq = HttpRequest.newBuilder().uri(URI.create(url)).timeout(Duration.ofSeconds(45)).GET().build();
                 var trRes = httpClient.send(trReq, HttpResponse.BodyHandlers.ofString());
+                if (trRes.statusCode() != 200) {
+                    log.warn("转写结果下载失败: status={}", trRes.statusCode());
+                    continue;
+                }
                 Map<String, Object> trData = jsonMapper.readValue(trRes.body(), Map.class);
-                var transcripts = (List<Map<String, Object>>) trData.get("transcripts");
-                if (transcripts == null) continue;
+                anyResultDownloaded = true;
+                var transcripts = asMapList(trData.get("transcripts"));
                 for (var t : transcripts) {
-                    var sentences = (List<Map<String, Object>>) t.get("sentences");
-                    if (sentences == null) continue;
+                    var sentences = asMapList(t.get("sentences"));
                     for (var s : sentences) {
                         var seg = new HashMap<String, Object>();
                         seg.put("speaker", "speaker_" + s.getOrDefault("speaker_id", 0));
@@ -252,6 +264,9 @@ public class MeetingAnalysisService {
         }
 
         if (segments.isEmpty()) {
+            if (!anyResultDownloaded) {
+                return recordTranscriptionResultFailure(id, "转写结果暂时无法下载，正在自动重试。", "result_download");
+            }
             return failTranscription(id, "未识别到有效语音（录音可能太短、太嘈杂或无人说话）");
         }
 
@@ -273,43 +288,103 @@ public class MeetingAnalysisService {
 
         jdbc.update("""
             UPDATE meetings
-            SET transcript_status = 'done', status = 'analyzing', fail_reason = NULL, updated_at = NOW()
+            SET transcript_status = 'done', status = 'analyzing', asr_poll_failures = 0,
+                asr_error_code = NULL, fail_reason = NULL, updated_at = NOW()
             WHERE id = ? AND transcript_status = 'finalizing'
             """, id);
         return Map.of("status", "analyzing");
     }
 
     private Map<String, Object> recordTranscriptionPollFailure(String meetingId) {
+        return recordTranscriptionPollFailure(meetingId, "正在重试查询语音识别结果，请稍候。", "poll_unavailable");
+    }
+
+    private Map<String, Object> recordTranscriptionPollFailure(String meetingId, String message, String errorCode) {
         Integer failures = jdbc.queryForObject(
             "SELECT COALESCE(asr_poll_failures, 0) FROM meetings WHERE id = ?", Integer.class, meetingId);
         if (failures != null && failures >= 4) {
-            return failTranscription(meetingId, "语音识别服务连续查询失败，请检查网络后重新提交转写。");
+            return failTranscription(meetingId, "语音识别服务连续查询失败，请检查网络后重新提交转写。", errorCode);
         }
         jdbc.update("""
             UPDATE meetings
             SET asr_poll_failures = COALESCE(asr_poll_failures, 0) + 1,
-                asr_last_polled_at = NOW(), fail_reason = '正在重试查询语音识别结果，请稍候。', updated_at = NOW()
+                asr_last_polled_at = NOW(), asr_error_code = ?, fail_reason = ?, updated_at = NOW()
             WHERE id = ?
-            """, meetingId);
-        return Map.of("status", "transcribing");
+            """, errorCode, message, meetingId);
+        return currentStatus(meetingId);
     }
 
     private Map<String, Object> failTranscription(String meetingId, String reason) {
+        return failTranscription(meetingId, reason, "transcription_failed");
+    }
+
+    private Map<String, Object> failTranscription(String meetingId, String reason, String errorCode) {
         jdbc.update("""
             UPDATE meetings
-            SET status = 'failed', transcript_status = 'failed', fail_reason = ?, updated_at = NOW()
+            SET status = 'failed', transcript_status = 'failed', asr_retry_at = NULL,
+                asr_error_code = ?, fail_reason = ?, updated_at = NOW()
             WHERE id = ?
-            """, reason, meetingId);
+            """, errorCode, reason, meetingId);
         return Map.of("status", "failed", "error", reason);
     }
 
+    /**
+     * DashScope 已完成识别时，下载结果文件可能短暂失败；此时绝不能误判成“无人说话”。
+     * 释放 finalizing 锁后继续读取同一个任务结果，不会重复提交录音或重复计费。
+     */
+    private Map<String, Object> recordTranscriptionResultFailure(String meetingId, String message, String errorCode) {
+        Integer failures = jdbc.queryForObject(
+            "SELECT COALESCE(asr_poll_failures, 0) FROM meetings WHERE id = ?", Integer.class, meetingId);
+        if (failures != null && failures >= 4) {
+            return failTranscription(meetingId, "转写结果连续下载失败，请检查网络后重新提交转写。", errorCode);
+        }
+        jdbc.update("""
+            UPDATE meetings
+            SET status = 'transcribing', transcript_status = 'transcribing',
+                asr_poll_failures = COALESCE(asr_poll_failures, 0) + 1,
+                asr_last_polled_at = NOW(), asr_error_code = ?, fail_reason = ?, updated_at = NOW()
+            WHERE id = ?
+            """, errorCode, message, meetingId);
+        return currentStatus(meetingId);
+    }
+
     private Map<String, Object> currentStatus(String meetingId) {
-        List<Map<String, Object>> rows = jdbc.queryForList("SELECT status, fail_reason FROM meetings WHERE id = ?", meetingId);
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+            SELECT status, transcript_status, fail_reason, asr_error_code, asr_retry_at,
+                   asr_submit_attempts, asr_poll_failures
+            FROM meetings WHERE id = ?
+            """, meetingId);
         if (rows.isEmpty()) return Map.of("status", "failed", "error", "会谈不存在");
         Map<String, Object> row = rows.get(0);
         String status = String.valueOf(row.get("status"));
-        if ("failed".equals(status)) return Map.of("status", status, "error", String.valueOf(row.getOrDefault("fail_reason", "处理失败")));
-        return Map.of("status", status);
+        if ("failed".equals(status)) {
+            Object reason = row.get("fail_reason");
+            return Map.of("status", status, "error", reason == null ? "处理失败" : String.valueOf(reason));
+        }
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("status", status);
+        payload.put("transcript_status", row.get("transcript_status"));
+        payload.put("message", row.get("fail_reason"));
+        payload.put("error_code", row.get("asr_error_code"));
+        payload.put("retry_at", row.get("asr_retry_at"));
+        payload.put("submit_attempts", row.get("asr_submit_attempts"));
+        payload.put("poll_failures", row.get("asr_poll_failures"));
+        return payload;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> asObjectMap(Object value) {
+        return value instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
+    }
+
+    private static List<Map<String, Object>> asMapList(Object value) {
+        if (!(value instanceof List<?> list)) return List.of();
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (Object item : list) {
+            Map<String, Object> map = asObjectMap(item);
+            if (!map.isEmpty()) rows.add(map);
+        }
+        return rows;
     }
 
     private String userFacingProcessError(String status, Exception error) {
@@ -387,7 +462,11 @@ public class MeetingAnalysisService {
             id, analysis.size(), knowledge.size(), methodology.size());
 
         // ④ 合规风险硬规则扫描（在 AI 文本基础上交叉验证）
-        var hits = complianceScanner.scan(rawText);
+        analysis.put("hard_compliance_level", 0);
+        // 合规表述只评价门店一侧。若说话人尚不能可靠区分，才退回全量转写，避免
+        // 客户复述“是不是最好/能否保证”等问题被错算成员工违规。
+        String complianceText = buildComplianceText(transcripts, roleLabel, rawText);
+        var hits = complianceScanner.scan(complianceText);
         if (!hits.isEmpty()) {
             mergeCompliance(analysis, hits);
         }
@@ -396,12 +475,20 @@ public class MeetingAnalysisService {
         normalizeNarrativeFields(analysis);
         analysis.put("knowledge_basis", buildKnowledgeBasis(knowledge));
         analysis.put("knowledge_hit_count", knowledge.size());
+        // 报告中保存的是本次分析实际送入模型的“证据快照”，而不是事后再按标题模糊匹配。
+        // 因此资料后续被修改、停用或删除时，历史复盘仍能说明当时依据了哪段内容；
+        // 同时前端可以用 document_id 回到受权限保护的原资料。
+        analysis.put("knowledge_sources", buildKnowledgeSources(knowledge));
         analysis.put("methodology_basis", systemPlaybookService.basis(methodology));
         analysis.put("methodology_hit_count", methodology.size());
+        analysis.put("methodology_sources", buildMethodologySources(methodology));
+        analysis.put("evidence_snapshot_at", OffsetDateTime.now().toString());
+        analysis.put("evidence_policy", "事实判断以本次逐句转写为准；门店资料用于校准本店口径；系统销售方法论仅用于沟通与决策策略，不替代门店价格、服务或合规规则。");
 
-        // ⑤ 量化评分（维度分 → 加权总分）
-        int qualityScore = computeQualityScore(analysis);
-        analysis.put("quality_score", qualityScore);
+        // ⑤ 量化评分：固定量表 + 可见公式 + 合规硬风险否决。
+        // 缺少模型维度时明确标记“评估不完整”，绝不再伪造默认 60 分。
+        MeetingQualityScorer.Result qualityResult = meetingQualityScorer.evaluate(analysis);
+        Integer qualityScore = qualityResult.score();
         FollowupPlan previousPlan = reprocessing && !existing.isEmpty()
             ? persistedFollowupPlan(existing.get(0)) : FollowupPlan.empty();
         FollowupPlan nextPlan = followupPlan(analysis);
@@ -437,10 +524,10 @@ public class MeetingAnalysisService {
                 nextPlan.dueAt() == null ? null : nextPlan.dueAt().toString(),
                 safeStr(analysis.get("suggested_script")),
                 toIntFlag(analysis.get("need_manager_involved")),
-                toIntScore(analysis.get("need_digging_score")),
-                toIntScore(analysis.get("deal_advancing_score")),
-                toIntScore(analysis.get("compliance_score")),
-                toIntScore(analysis.get("service_score")),
+                nullableScore(analysis.get("need_digging_score")),
+                nullableScore(analysis.get("deal_advancing_score")),
+                nullableScore(analysis.get("compliance_score")),
+                nullableScore(analysis.get("service_score")),
                 qualityScore, now, analysisId, id, storeId);
             log.info("会谈报告已覆盖: meeting={}, analysis={}, affected={}", id, analysisId, updated);
         } else {
@@ -463,10 +550,10 @@ public class MeetingAnalysisService {
                 nextPlan.dueAt() == null ? null : nextPlan.dueAt().toString(),
                 safeStr(analysis.get("suggested_script")),
                 toIntFlag(analysis.get("need_manager_involved")),
-                toIntScore(analysis.get("need_digging_score")),
-                toIntScore(analysis.get("deal_advancing_score")),
-                toIntScore(analysis.get("compliance_score")),
-                toIntScore(analysis.get("service_score")),
+                nullableScore(analysis.get("need_digging_score")),
+                nullableScore(analysis.get("deal_advancing_score")),
+                nullableScore(analysis.get("compliance_score")),
+                nullableScore(analysis.get("service_score")),
                 qualityScore,
                 0,
                 now, now
@@ -484,7 +571,7 @@ public class MeetingAnalysisService {
         }
 
         // ⑥ 完整闭环：经验沉淀 + 跟进任务 + 合规整改 + 店长通知 + 低分告警 + 客户记忆 + 知识缺口
-        closeLoop(id, storeId, analysisId, row, analysis, qualityScore);
+        closeLoop(id, storeId, analysisId, row, analysis, qualityResult);
 
         return Map.of("status", "done");
     }
@@ -536,7 +623,8 @@ public class MeetingAnalysisService {
                   + "employee_did_well, employee_to_improve, missed_opportunities, service_experience_risk, "
                   + "compliance_risks, customer_decision_stage, judgement_basis, professional_assessment, next_step_plan, "
                   + "followup_goal, suggested_followup_at, suggested_script, need_manager_involved, "
-                  + "need_digging_score, deal_advancing_score, compliance_score, service_score"
+                  + "need_digging_score, need_digging_evidence, deal_advancing_score, deal_advancing_evidence, "
+                  + "compliance_score, compliance_evidence, service_score, service_evidence"
         );
 
         String aiResult = aiAdapter.callJson(system, user);
@@ -579,7 +667,8 @@ public class MeetingAnalysisService {
             + "employee_did_well, employee_to_improve, missed_opportunities, service_experience_risk, "
             + "compliance_risks, customer_decision_stage, judgement_basis, professional_assessment, next_step_plan, "
             + "followup_goal, suggested_followup_at, suggested_script, need_manager_involved, "
-            + "need_digging_score, deal_advancing_score, compliance_score, service_score\n\n"
+            + "need_digging_score, need_digging_evidence, deal_advancing_score, deal_advancing_evidence, "
+            + "compliance_score, compliance_evidence, service_score, service_evidence\n\n"
             + "各段要素如下：\n%s",
             scene, roleHint, knowledgeContext, sb
         );
@@ -689,7 +778,7 @@ public class MeetingAnalysisService {
             + "suggested_followup_at：建议跟进时间，例如 3 天内、下周二；没有依据则空字符串。\n"
             + "suggested_script：可直接使用但不夸大承诺的下一次沟通话术。\n"
             + "need_manager_involved：布尔值，只有重大风险、高价值客户或员工无权处理时为 true。\n"
-            + "need_digging_score、deal_advancing_score、compliance_score、service_score：0 到 100 的整数；分数必须与 judgement_basis 的事实相符。";
+            + MeetingQualityScorer.rubricForPrompt();
     }
 
     /** 从模型返回中截取 JSON 片段（兜底用，正常情况下 response_format 已保证纯 JSON） */
@@ -748,7 +837,7 @@ public class MeetingAnalysisService {
 
     // ===================== ④ 合规硬规则合并 =====================
 
-    /** 拼接转写纯文本（不含角色标注），用于词表扫描 */
+    /** 拼接转写纯文本（不含角色标注），用于知识检索和无角色兜底。 */
     private String buildRawText(List<Map<String, Object>> transcripts) {
         StringBuilder sb = new StringBuilder();
         for (var t : transcripts) {
@@ -756,6 +845,20 @@ public class MeetingAnalysisService {
             if (c != null && !c.isBlank()) sb.append(c).append("\n");
         }
         return sb.toString();
+    }
+
+    /** 优先只取员工/店长发言进行合规词表扫描，避免把客户提问误记为门店话术。 */
+    private String buildComplianceText(List<Map<String, Object>> transcripts, Map<String, String> roleLabel,
+                                       String fallbackRawText) {
+        StringBuilder sb = new StringBuilder();
+        for (Map<String, Object> transcript : transcripts) {
+            String speaker = safeStr(transcript.get("speaker"));
+            String role = roleLabel.getOrDefault(speaker, "");
+            if (!"员工".equals(role) && !"店长".equals(role)) continue;
+            String content = safeStr(transcript.get("content"));
+            if (!content.isBlank()) sb.append(content).append('\n');
+        }
+        return sb.isEmpty() ? fallbackRawText : sb.toString();
     }
 
     /**
@@ -813,6 +916,49 @@ public class MeetingAnalysisService {
             if (chunk.documentTitle() != null && !chunk.documentTitle().isBlank()) titles.add(chunk.documentTitle());
         }
         return "本次复盘参考了已启用门店资料：" + String.join("、", titles) + "。分析以会谈转写为事实基础，资料仅用于校准专业方法与话术边界。";
+    }
+
+    /**
+     * 将本次真正命中的知识片段原样快照到 report JSON。
+     * 这里不保存检索分数为“可信度”，避免把关键词匹配分误导成人工审核后的可靠程度。
+     */
+    private List<Map<String, Object>> buildKnowledgeSources(List<KnowledgeRetrieveService.RetrievedChunk> chunks) {
+        if (chunks == null || chunks.isEmpty()) return List.of();
+        List<Map<String, Object>> result = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+        for (KnowledgeRetrieveService.RetrievedChunk chunk : chunks) {
+            if (chunk == null || chunk.documentId() == null || chunk.documentId().isBlank()) continue;
+            String dedupe = chunk.documentId() + "|" + safeStr(chunk.id());
+            if (!seen.add(dedupe)) continue;
+            Map<String, Object> source = new LinkedHashMap<>();
+            source.put("document_id", chunk.documentId());
+            source.put("chunk_id", chunk.id());
+            source.put("title", safeStr(chunk.documentTitle()).isBlank() ? "未命名门店资料" : chunk.documentTitle());
+            source.put("excerpt", clip(chunk.content(), 360));
+            source.put("kind", "store_knowledge");
+            result.add(source);
+        }
+        return result;
+    }
+
+    /** 系统方法论与门店资料分开快照，避免被误认为本店既定制度。 */
+    private List<Map<String, Object>> buildMethodologySources(List<SystemPlaybookService.PlaybookReference> references) {
+        if (references == null || references.isEmpty()) return List.of();
+        List<Map<String, Object>> result = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+        for (SystemPlaybookService.PlaybookReference reference : references) {
+            if (reference == null || reference.id() == null || reference.id().isBlank() || !seen.add(reference.id())) continue;
+            Map<String, Object> source = new LinkedHashMap<>();
+            source.put("id", reference.id());
+            source.put("scenario_key", reference.scenarioKey());
+            source.put("title", safeStr(reference.title()).isBlank() ? "系统销售方法论" : reference.title());
+            source.put("module", reference.category());
+            source.put("source", reference.source());
+            source.put("excerpt", clip(reference.content(), 360));
+            source.put("kind", "system_methodology");
+            result.add(source);
+        }
+        return result;
     }
 
     /** 模型偶尔返回数组或把数组再次编码成字符串，统一转换成适合 TEXT 字段展示的段落。 */
@@ -873,6 +1019,7 @@ public class MeetingAnalysisService {
         StringBuilder sb = new StringBuilder();
         List<Map<String, Object>> hitList = new ArrayList<>();
         boolean forceManager = false;
+        int maxLevel = 0;
         for (var h : hits) {
             sb.append(h.getWord()).append("（").append(h.getLevelName()).append("，").append(h.getCategory()).append("）：")
               .append(h.getContext()).append("\n");
@@ -883,6 +1030,7 @@ public class MeetingAnalysisService {
             m.put("category", h.getCategory());
             m.put("context", h.getContext());
             hitList.add(m);
+            maxLevel = Math.max(maxLevel, h.getLevel());
             if (h.getLevel() >= 3) forceManager = true;
         }
         String hard = sb.toString().trim();
@@ -890,38 +1038,15 @@ public class MeetingAnalysisService {
         analysis.put("compliance_risks",
             existing.isBlank() ? "系统合规词表命中：\n" + hard : existing + "\n\n系统合规词表命中：\n" + hard);
         analysis.put("compliance_hits", hitList);
+        analysis.put("hard_compliance_level", maxLevel);
         if (forceManager) analysis.put("need_manager_involved", true);
     }
 
     // ===================== ⑤ 量化评分 =====================
 
-    /** 取维度分并归一化到 0-100，再按权重算加权总分 */
-    private int computeQualityScore(Map<String, Object> analysis) {
-        String[] keys = {"need_digging_score", "deal_advancing_score", "compliance_score", "service_score"};
-        double sum = 0;
-        for (int i = 0; i < keys.length; i++) {
-            int s = clampScore(analysis.get(keys[i]));
-            analysis.put(keys[i], s);
-            sum += s * SCORE_WEIGHTS[i];
-        }
-        return (int) Math.round(sum);
-    }
-
-    private int clampScore(Object v) {
-        if (v == null) return 60;
-        int n;
-        if (v instanceof Number num) n = num.intValue();
-        else {
-            try { n = Integer.parseInt(String.valueOf(v).replaceAll("[^0-9]", "")); }
-            catch (Exception e) { return 60; }
-        }
-        if (n < 0) n = 0;
-        if (n > 100) n = 100;
-        return n;
-    }
-
-    private int toIntScore(Object v) {
-        return clampScore(v);
+    /** scorer 已将新报告归一化到 Integer/null；此处保留 null，避免 JDBC 默认值伪装成有效分数。 */
+    private Integer nullableScore(Object value) {
+        return value instanceof Number number ? number.intValue() : null;
     }
 
     // ===================== ⑥ 完整闭环 =====================
@@ -932,17 +1057,18 @@ public class MeetingAnalysisService {
     /**
      * 分析完成后执行完整闭环：
      * - 所有带有明确跟进目标的会谈：生成跟进任务 + 更新客户跟进时间
-     * - 高分（≥75）：额外进入经验审核候选 + 训练任务
+     * - 达到量表经验候选线且无 L3/L4 风险：额外进入经验审核候选
      * - 合规 L3/L4：生成整改任务 + 通知店长
      * - 店长介入：通知店长
-     * - 低分（<50）：强制培训 + 告警
+     * - 低于辅导线或命中 L3/L4：创建辅导 + 告警；评分不完整不自动贴低分标签
      * - 客户记忆：写入 memory_items（低可信度先进入待确认）
      * - 知识缺口：分析失败时记录
      * 每个子步骤独立执行；局部异常会被持久化为可见的 partial_failed，而不是
      * 让会谈页面显示完成却悄悄丢失业务动作。
      */
     private Map<String, Object> closeLoop(String meetingId, String storeId, String analysisId,
-                                          Map<String, Object> row, Map<String, Object> analysis, int qualityScore) {
+                                          Map<String, Object> row, Map<String, Object> analysis,
+                                          MeetingQualityScorer.Result qualityResult) {
         jdbc.update("""
             UPDATE meetings SET closure_status = 'processing', closure_attempts = COALESCE(closure_attempts, 0) + 1,
                 closure_error = NULL, updated_at = NOW() WHERE id = ? AND store_id = ?
@@ -959,7 +1085,7 @@ public class MeetingAnalysisService {
             createFollowupTask(storeId, meetingId, analysisId, employeeId, customerId, analysis);
             updateCustomerFollowupAt(storeId, customerId, analysis);
         });
-        if (qualityScore >= DISTILL_THRESHOLD) {
+        if (qualityResult.canDistill()) {
             runClosureStep("经验审核", failures, () ->
                 distillExperience(meetingId, analysisId, storeId, scene, customerName, employeeId, customerId, analysis));
         }
@@ -969,16 +1095,16 @@ public class MeetingAnalysisService {
                 || toIntFlag(analysis.get("need_manager_involved")) == 1) {
             runClosureStep("店长介入", failures, () -> notifyManager(storeId, employeeId, summary, analysis));
         }
-        if (qualityScore < LOW_SCORE_THRESHOLD) {
+        if (qualityResult.needsCoaching()) {
             runClosureStep("低分辅导", failures, () ->
                 handleLowScore(meetingId, analysisId, storeId, employeeId, customerId, customerName, summary, analysis));
         }
         if (customerId != null) {
             runClosureStep("客户记忆", failures, () ->
-                writeCustomerMemory(meetingId, storeId, customerId, employeeId, analysisId, analysis, qualityScore));
+                writeCustomerMemory(meetingId, storeId, customerId, employeeId, analysisId, analysis, qualityResult.score()));
             runClosureStep("客户时间线", failures, () ->
                 customerTimelineService.addInteraction(storeId, customerId, employeeId, "meeting_analysis",
-                    "会谈分析完成，质量分：" + qualityScore + "，摘要：" + summary));
+                    "会谈分析完成，质量评估：" + qualityResult.displayScore() + "，摘要：" + summary));
         }
         if (summary.isBlank() || analysis.containsKey("raw")) {
             runClosureStep("知识缺口", failures, () ->
@@ -986,9 +1112,11 @@ public class MeetingAnalysisService {
         }
 
         if (failures.isEmpty()) {
-            jdbc.update("UPDATE meeting_analysis SET distilled = 1 WHERE meeting_id = ?", meetingId);
+            jdbc.update("UPDATE meeting_analysis SET distilled = ? WHERE meeting_id = ?",
+                qualityResult.canDistill() ? 1 : 0, meetingId);
             jdbc.update("UPDATE meetings SET closure_status = 'completed', closure_error = NULL, updated_at = NOW() WHERE id = ?", meetingId);
-            log.info("会谈闭环完成: meeting={}, quality={}", meetingId, qualityScore);
+            log.info("会谈闭环完成: meeting={}, quality={}, qualityStatus={}", meetingId,
+                qualityResult.score(), qualityResult.status());
             return Map.of("closure_status", "completed");
         }
 
@@ -1010,9 +1138,9 @@ public class MeetingAnalysisService {
             """, meetingId, storeId);
         Map<String, Object> report = parseReport(persisted.get("report"));
         if (report.isEmpty()) throw BizException.badRequest("未找到可执行的会谈分析报告");
-        int quality = persisted.get("quality_score") instanceof Number number
-            ? number.intValue() : toIntScore(report.get("quality_score"));
-        return closeLoop(meetingId, storeId, safeStr(persisted.get("id")), row, report, quality);
+        Integer quality = persisted.get("quality_score") instanceof Number number ? number.intValue() : null;
+        MeetingQualityScorer.Result qualityResult = meetingQualityScorer.fromStoredReport(report, quality);
+        return closeLoop(meetingId, storeId, safeStr(persisted.get("id")), row, report, qualityResult);
     }
 
     @SuppressWarnings("unchecked")
@@ -1153,7 +1281,7 @@ public class MeetingAnalysisService {
     // ---------- E. 客户记忆写入 ----------
 
     private void writeCustomerMemory(String meetingId, String storeId, String customerId, String employeeId,
-                                     String analysisId, Map<String, Object> analysis, int qualityScore) {
+                                     String analysisId, Map<String, Object> analysis, Integer qualityScore) {
         Integer existing = jdbc.queryForObject(
             "SELECT COUNT(*) FROM memory_items WHERE source_type = 'meeting_analysis' AND source_id = ?",
             Integer.class, analysisId);
@@ -1517,7 +1645,8 @@ public class MeetingAnalysisService {
         return now.plusDays(3);
     }
 
-    private String confidenceLevel(int qualityScore) {
+    private String confidenceLevel(Integer qualityScore) {
+        if (qualityScore == null) return "low";
         if (qualityScore >= 75) return "high";
         if (qualityScore >= 50) return "medium";
         return "low";
