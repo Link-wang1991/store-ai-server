@@ -15,6 +15,8 @@ import com.storeai.customer.service.CustomerTimelineService;
 import com.storeai.knowledge.service.KnowledgeRetrieveService;
 import com.storeai.knowledge.service.KnowledgeService;
 import com.storeai.knowledge.service.SystemPlaybookService;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.core.type.TypeReference;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import lombok.extern.slf4j.Slf4j;
@@ -25,6 +27,7 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.dao.DuplicateKeyException;
 
 /**
  * AI 问答核心管线（重构版）
@@ -50,10 +53,28 @@ public class ChatPipelineService {
     private static final List<String> FEEDBACK_TYPES = List.of("已接受", "已预约", "仍有顾虑", "信息有误", "需要升级");
 
     public AnswerResult answer(String question, String sessionId, String customerId) {
+        return answer(question, sessionId, customerId, null);
+    }
+
+    /**
+     * 同一请求在网络超时后可以安全重发。已落库的回答直接返回，避免重复创建会话、
+     * 客户时间线和后续动作；请求标识为空时保持旧调用兼容。
+     */
+    public AnswerResult answer(String question, String sessionId, String customerId, String clientRequestId) {
         String normalizedQuestion = question == null ? "" : question.trim();
         if (normalizedQuestion.isBlank()) {
             throw BizException.badRequest("问题不能为空");
         }
+        String requestId = normalizeRequestId(clientRequestId);
+        if (requestId != null) {
+            ChatMessage existing = findExistingRequest(requestId);
+            if (existing != null) return toAnswerResult(existing);
+        }
+        return answerInternal(normalizedQuestion, sessionId, customerId, requestId);
+    }
+
+    private AnswerResult answerInternal(String normalizedQuestion, String sessionId, String customerId,
+                                        String clientRequestId) {
 
         String requestedCustomerId = normalizeCustomerId(customerId);
 
@@ -144,8 +165,10 @@ public class ChatPipelineService {
 
         // 6. 生成回答
         String answer;
+        String generationMode;
         if ("risk".equals(answerType)) {
             answer = buildRiskAnswer();
+            generationMode = "safety_rule";
         } else if (aiAdapter.isConfigured()) {
             var system = PromptBuilder.buildSystem(new PromptBuilder.SystemPromptOpts(
                 "本店",  // storeName - CurrentUser 暂无此字段
@@ -161,11 +184,14 @@ public class ChatPipelineService {
             String aiAnswer = aiAdapter.call(system, user, null);
             if (aiAnswer != null) {
                 answer = aiAnswer;
+                generationMode = "model";
             } else {
                 answer = buildFallbackAnswer(standardAnswer, customerId, chunks, playbooks, normalizedQuestion);
+                generationMode = "fallback";
             }
         } else {
             answer = buildFallbackAnswer(standardAnswer, customerId, chunks, playbooks, normalizedQuestion);
+            generationMode = "fallback";
         }
 
         // 7. 合规检查（禁用词）
@@ -180,7 +206,7 @@ public class ChatPipelineService {
         }
 
         return saveAnswer(normalizedQuestion, sessionId, customerId, category, riskLevel, answerType,
-            answer, chunks, playbooks, bannedHit);
+            generationMode, clientRequestId, answer, chunks, playbooks, bannedHit);
     }
 
     private String normalizeCustomerId(String customerId) {
@@ -385,7 +411,8 @@ public class ChatPipelineService {
     }
 
     private AnswerResult saveAnswer(String question, String sessionId, String customerId,
-                                    String category, String riskLevel, String answerType,
+                                    String category, String riskLevel, String answerType, String generationMode,
+                                    String clientRequestId,
                                     String answer,
                                     List<KnowledgeRetrieveService.RetrievedChunk> chunks,
                                     List<SystemPlaybookService.PlaybookReference> playbooks,
@@ -399,6 +426,8 @@ public class ChatPipelineService {
         msg.setAiResponse(answer);
         msg.setQuestionCategory(category);
         msg.setAnswerType(answerType);
+        msg.setGenerationMode(generationMode);
+        msg.setClientRequestId(clientRequestId);
         msg.setRiskLevel(riskLevel);
         msg.setCustomerId(customerId);
         try {
@@ -414,7 +443,15 @@ public class ChatPipelineService {
                 .toList()));
         } catch (Exception ignored) { }
         msg.setCreatedAt(OffsetDateTime.now());
-        messageRepo.insert(msg);
+        try {
+            messageRepo.insert(msg);
+        } catch (DuplicateKeyException duplicate) {
+            // 两个网络重试恰好并发到达时，数据库唯一索引是最后一道保障。返回最先
+            // 成功写入的结果，而不是抛给员工一个“重复提交”的技术错误。
+            ChatMessage existing = findExistingRequest(clientRequestId);
+            if (existing != null) return toAnswerResult(existing);
+            throw duplicate;
+        }
 
         var session = sessionRepo.selectById(sessionId);
         if (session != null) {
@@ -436,8 +473,52 @@ public class ChatPipelineService {
 
         return new AnswerResult(
             sessionId, msg.getId(), answer, category,
-            riskLevel, answerType, retrieved, methodology, bannedHit
+            riskLevel, answerType, generationMode, retrieved, methodology, bannedHit
         );
+    }
+
+    private String normalizeRequestId(String requestId) {
+        if (requestId == null || requestId.isBlank()) return null;
+        String normalized = requestId.trim();
+        if (normalized.length() > 80 || !normalized.matches("[A-Za-z0-9._:-]+")) {
+            throw BizException.badRequest("请求标识格式不正确");
+        }
+        return normalized;
+    }
+
+    private ChatMessage findExistingRequest(String clientRequestId) {
+        if (clientRequestId == null || clientRequestId.isBlank()) return null;
+        return messageRepo.selectOne(new LambdaQueryWrapper<ChatMessage>()
+            .eq(ChatMessage::getStoreId, cur.storeId())
+            .eq(ChatMessage::getEmployeeId, cur.employeeId())
+            .eq(ChatMessage::getClientRequestId, clientRequestId)
+            .last("LIMIT 1"));
+    }
+
+    private AnswerResult toAnswerResult(ChatMessage message) {
+        return new AnswerResult(
+            message.getSessionId(), message.getId(), message.getAiResponse(), message.getQuestionCategory(),
+            message.getRiskLevel(), message.getAnswerType(),
+            message.getGenerationMode() == null || message.getGenerationMode().isBlank() ? "legacy" : message.getGenerationMode(),
+            readRetrieved(message.getRetrievedChunks()), readMethodology(message.getMethodologySources()), List.of());
+    }
+
+    private List<RetrievedInfo> readRetrieved(String raw) {
+        if (raw == null || raw.isBlank()) return List.of();
+        try {
+            return mapper.readValue(raw, new TypeReference<List<RetrievedInfo>>() {});
+        } catch (Exception ignored) {
+            return List.of();
+        }
+    }
+
+    private List<MethodologyInfo> readMethodology(String raw) {
+        if (raw == null || raw.isBlank()) return List.of();
+        try {
+            return mapper.readValue(raw, new TypeReference<List<MethodologyInfo>>() {});
+        } catch (Exception ignored) {
+            return List.of();
+        }
     }
 
     /** 模型服务临时不可用时仍展示清楚的双来源依据，避免降级成没有说明的通用答案。 */
@@ -523,6 +604,7 @@ public class ChatPipelineService {
         String category,
         String riskLevel,
         String answerType,
+        String generationMode,
         List<RetrievedInfo> retrieved,
         List<MethodologyInfo> methodology,
         List<String> bannedHit

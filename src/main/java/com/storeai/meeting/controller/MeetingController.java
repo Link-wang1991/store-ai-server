@@ -3,6 +3,7 @@ package com.storeai.meeting.controller;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.storeai.auth.entity.Employee;
 import com.storeai.auth.repository.EmployeeRepository;
 import com.storeai.common.dto.ApiResponse;
@@ -14,6 +15,7 @@ import com.storeai.customer.service.CustomerTimelineService;
 import com.storeai.meeting.entity.Meeting;
 import com.storeai.meeting.repository.MeetingRepository;
 import com.storeai.meeting.service.MeetingAnalysisService;
+import com.storeai.meeting.service.MeetingQualityCalibrationService;
 import com.storeai.meeting.service.MeetingTranscriptionService;
 import com.storeai.common.service.StorageService;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -38,6 +40,7 @@ import java.nio.file.StandardCopyOption;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.Set;
 import java.util.List;
 import java.util.Map;
@@ -61,9 +64,11 @@ public class MeetingController {
     private final CurrentUser cur;
     private final JdbcTemplate jdbc;
     private final MeetingAnalysisService analysisService;
+    private final MeetingQualityCalibrationService qualityCalibrationService;
     private final MeetingTranscriptionService transcriptionService;
     private final CustomerTimelineService customerTimelineService;
     private final StorageService storageService;
+    private final ObjectMapper objectMapper;
 
     // storage.provider: local | minio，默认 local
     @Value("${storage.provider:local}")
@@ -94,6 +99,10 @@ public class MeetingController {
         result.put("scene", m.getScene());
         result.put("status", m.getStatus());
         result.put("audio_url", m.getAudioUrl());
+        result.put("audio_upload_state", m.getAudioUploadState());
+        result.put("audio_bytes", m.getAudioBytes());
+        result.put("audio_mime_type", m.getAudioMimeType());
+        result.put("audio_received_at", m.getAudioReceivedAt());
         result.put("asr_task_id", m.getAsrTaskId());
         result.put("asr_submit_attempts", m.getAsrSubmitAttempts());
         result.put("asr_submit_started_at", m.getAsrSubmitStartedAt());
@@ -104,6 +113,9 @@ public class MeetingController {
         result.put("transcript_status", m.getTranscriptStatus());
         result.put("fail_reason", m.getFailReason());
         result.put("analysis_status", m.getAnalysisStatus());
+        result.put("analysis_attempts", m.getAnalysisAttempts());
+        result.put("analysis_retry_at", m.getAnalysisRetryAt());
+        result.put("analysis_error_code", m.getAnalysisErrorCode());
         result.put("action_review_status", m.getActionReviewStatus());
         result.put("closure_status", m.getClosureStatus());
         result.put("closure_attempts", m.getClosureAttempts());
@@ -186,6 +198,13 @@ public class MeetingController {
         return ApiResponse.ok(meetingRepo.selectCount(qw));
     }
 
+    /** 店长查看自动评分与人工复核的真实偏差样本；不使用未标注会谈伪造准确率。 */
+    @GetMapping("/quality-calibration")
+    public ApiResponse<Map<String, Object>> qualityCalibration() {
+        if (!cur.isAdmin()) throw BizException.forbidden("仅店长/老板可查看评分校准数据");
+        return ApiResponse.ok(qualityCalibrationService.summary(cur.storeId()));
+    }
+
     @PostMapping
     public ApiResponse<Meeting> create(@RequestBody CreateMeetingRequest req) {
         // 如果未传入 customerId，自动创建客户（陌生客户首次接待自动沉淀）
@@ -212,6 +231,7 @@ public class MeetingController {
         m.setCustomerId(customerId);
         m.setScene(req.scene());
         m.setStatus("recording");
+        m.setAudioUploadState("recording");
         m.setCreatedAt(OffsetDateTime.now());
         m.setUpdatedAt(OffsetDateTime.now());
         // 查询员工名和客户名，保存到会谈记录中
@@ -244,6 +264,7 @@ public class MeetingController {
                 .eq("employee_id", cur.employeeId())
                 .eq("status", "recording");
         wrapper.set("status", "failed");
+        wrapper.set("audio_upload_state", "abandoned");
         meetingRepo.update(null, wrapper);
         return ApiResponse.ok();
     }
@@ -282,6 +303,10 @@ public class MeetingController {
                     .eq(Meeting::getId, id)
                     .set(Meeting::getStatus, "queued")
                     .set(Meeting::getAudioUrl, filePath)
+                    .set(Meeting::getAudioUploadState, "stored")
+                    .set(Meeting::getAudioBytes, file.getSize())
+                    .set(Meeting::getAudioMimeType, file.getContentType())
+                    .set(Meeting::getAudioReceivedAt, OffsetDateTime.now())
                     .set(Meeting::getAsrTaskId, null)
                     .set(Meeting::getAsrSubmitAttempts, 0)
                     .set(Meeting::getAsrSubmitStartedAt, null)
@@ -322,6 +347,43 @@ public class MeetingController {
             """, id);
         transcriptionService.queue(id);
         return ApiResponse.ok();
+    }
+
+    /**
+     * 设备上传、服务端落盘、ASR 提交和分析分别显示，避免用户只看到“处理失败”却
+     * 不知道该重传录音、等待自动重试，还是重新分析。
+     */
+    @GetMapping("/{id}/diagnostics")
+    public ApiResponse<Map<String, Object>> diagnostics(@PathVariable String id) {
+        Meeting meeting = requireAccessibleMeeting(id);
+        Map<String, Object> result = new HashMap<>();
+        result.put("meeting_id", meeting.getId());
+        result.put("audio_upload_state", meeting.getAudioUploadState() == null ? "pending" : meeting.getAudioUploadState());
+        result.put("audio_stored", meeting.getAudioUrl() != null && !meeting.getAudioUrl().isBlank());
+        result.put("audio_bytes", meeting.getAudioBytes());
+        result.put("audio_mime_type", meeting.getAudioMimeType());
+        result.put("audio_received_at", meeting.getAudioReceivedAt());
+        result.put("asr_task_id", meeting.getAsrTaskId());
+        result.put("asr_submit_attempts", meeting.getAsrSubmitAttempts() == null ? 0 : meeting.getAsrSubmitAttempts());
+        result.put("asr_poll_failures", meeting.getAsrPollFailures() == null ? 0 : meeting.getAsrPollFailures());
+        result.put("asr_retry_at", meeting.getAsrRetryAt());
+        result.put("asr_error_code", meeting.getAsrErrorCode());
+        result.put("analysis_attempts", meeting.getAnalysisAttempts() == null ? 0 : meeting.getAnalysisAttempts());
+        result.put("analysis_retry_at", meeting.getAnalysisRetryAt());
+        result.put("analysis_error_code", meeting.getAnalysisErrorCode());
+        result.put("status", meeting.getStatus());
+        result.put("transcript_status", meeting.getTranscriptStatus());
+        result.put("fail_reason", meeting.getFailReason());
+        result.put("next_step", diagnosticNextStep(meeting));
+        return ApiResponse.ok(result);
+    }
+
+    private String diagnosticNextStep(Meeting meeting) {
+        if (meeting.getAudioUrl() == null || meeting.getAudioUrl().isBlank()) return "本机尚未确认录音已落盘：请在同一设备的会谈详情重新上传；若手机是 HTTP 地址，改用“上传已有录音”或 HTTPS 后再录制。";
+        if ("failed".equals(meeting.getStatus()) && meeting.getAsrErrorCode() != null) return "服务端已保留录音。请查看错误码并使用“重新提交转写”；网络类错误会自动重试，格式/授权类错误需处理后再试。";
+        if (meeting.getAsrRetryAt() != null) return "服务端已安排自动重试；到达重试时间前无需重复上传。";
+        if ("analyzing".equals(meeting.getStatus())) return "录音与转写已通过，正在生成业务分析；如超过 10 分钟未更新，请从运行监控处理。";
+        return "链路状态正常；可在会谈详情查看逐字稿、评分和业务闭环。";
     }
 
     private String saveToLocal(String fileName, InputStream data) throws Exception {
@@ -426,6 +488,72 @@ public class MeetingController {
         return ApiResponse.ok(rows);
     }
 
+    /**
+     * 店长对自动评分做业务校准。评分量表和合规红线仍保留在报告中，人工意见只作为
+     * 可追溯的审核记录，不能把系统识别到的合规风险“改没”。
+     */
+    @PostMapping("/{id}/quality-review")
+    public ApiResponse<Map<String, Object>> reviewQuality(@PathVariable String id,
+                                                            @RequestBody Map<String, Object> body) {
+        Meeting meeting = requireAccessibleMeeting(id);
+        if (!cur.isAdmin()) throw BizException.forbidden("仅店长/老板可复核会谈评分");
+
+        int score;
+        try {
+            score = Integer.parseInt(String.valueOf(body.get("score")));
+        } catch (Exception ignored) {
+            throw BizException.badRequest("请选择人工复核分数");
+        }
+        if (score != 0 && score != 25 && score != 50 && score != 75 && score != 100) {
+            throw BizException.badRequest("人工复核分数仅支持 0、25、50、75、100");
+        }
+        String note = String.valueOf(body.getOrDefault("note", "")).trim();
+        if (note.length() > 1000) throw BizException.badRequest("复核说明不能超过 1000 字");
+        List<String> reasonCodes = normalizeReviewReasonCodes(body.get("reason_codes"));
+        String reasonCodesJson;
+        try {
+            reasonCodesJson = reasonCodes.isEmpty() ? null : objectMapper.writeValueAsString(reasonCodes);
+        } catch (Exception e) {
+            throw BizException.badRequest("复核原因格式无效");
+        }
+
+        var rows = jdbc.queryForList("""
+            SELECT id, quality_score, report FROM meeting_analysis
+            WHERE meeting_id = ? AND store_id = ?
+            ORDER BY updated_at DESC, created_at DESC LIMIT 1
+            """, id, meeting.getStoreId());
+        if (rows.isEmpty()) throw BizException.badRequest("会谈尚未生成可复核的分析报告");
+        Map<String, Object> analysis = rows.get(0);
+        jdbc.update("""
+            UPDATE meeting_analysis
+            SET quality_review_status = 'reviewed', quality_review_score = ?, quality_review_note = ?, quality_review_reason_codes = ?,
+                quality_reviewed_by = ?, quality_reviewed_at = NOW(), updated_at = NOW()
+            WHERE id = ? AND meeting_id = ? AND store_id = ?
+            """, score, note.isBlank() ? null : note, reasonCodesJson, cur.employeeId(), analysis.get("id"), id, meeting.getStoreId());
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("quality_review_status", "reviewed");
+        result.put("quality_review_score", score);
+        result.put("quality_review_note", note);
+        result.put("quality_review_reason_codes", reasonCodes);
+        result.put("quality_reviewed_by", cur.employeeId());
+        result.put("quality_reviewed_at", OffsetDateTime.now());
+        result.put("quality_score", analysis.get("quality_score"));
+        result.put("message", "人工复核已保存；自动评分、公式和合规风险保持不变。");
+        return ApiResponse.ok(result);
+    }
+
+    private List<String> normalizeReviewReasonCodes(Object raw) {
+        Set<String> allowed = Set.of("need_discovery", "deal_progress", "service_experience", "compliance", "transcript_quality", "other");
+        List<String> result = new ArrayList<>();
+        if (!(raw instanceof List<?> values)) return result;
+        for (Object value : values) {
+            String code = String.valueOf(value).trim();
+            if (allowed.contains(code) && !result.contains(code)) result.add(code);
+        }
+        return result;
+    }
+
     /** 获取会谈转写记录（先校验 meeting 归属） */
     @GetMapping("/{id}/transcripts")
     public ApiResponse<List<Map<String, Object>>> getTranscripts(@PathVariable String id) {
@@ -497,7 +625,8 @@ public class MeetingController {
         if (transcriptCount == null || transcriptCount == 0) throw BizException.badRequest("没有可重新分析的逐句转写");
         jdbc.update("""
             UPDATE meetings
-            SET status = 'analyzing', analysis_status = 'reprocessing', fail_reason = NULL, updated_at = NOW()
+            SET status = 'analyzing', analysis_status = 'reprocessing', fail_reason = NULL,
+                analysis_attempts = 0, analysis_retry_at = NULL, analysis_error_code = NULL, updated_at = NOW()
             WHERE id = ? AND store_id = ?
             """, id, meeting.getStoreId());
         return ApiResponse.ok(Map.of("status", "analyzing"));

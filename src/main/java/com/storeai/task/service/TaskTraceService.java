@@ -35,7 +35,9 @@ public class TaskTraceService {
     public List<Map<String, Object>> listForCurrentEmployee(String status) {
         StringBuilder sql = new StringBuilder("""
             SELECT t.id, t.store_id, t.customer_id, t.title, t.content, t.type, t.status, t.priority,
-                   t.assigned_to, t.created_by, t.due_at, t.feedback, t.source_type, t.source_id,
+                   t.assigned_to, t.created_by, t.due_at, t.feedback, t.business_outcome_status,
+                   t.result_code, t.result_detail, t.result_recorded_at, t.result_verified_at,
+                   t.result_verified_by, t.next_follow_at, t.requires_result_verification, t.source_type, t.source_id,
                    t.source_meeting_id, t.created_at, t.updated_at,
                    c.name AS customer_name, c.stage AS customer_stage
             FROM tasks t
@@ -57,7 +59,9 @@ public class TaskTraceService {
     public List<Map<String, Object>> listOpenForCurrentEmployee() {
         List<Map<String, Object>> rows = jdbc.queryForList("""
             SELECT t.id, t.store_id, t.customer_id, t.title, t.content, t.type, t.status, t.priority,
-                   t.assigned_to, t.created_by, t.due_at, t.feedback, t.source_type, t.source_id,
+                   t.assigned_to, t.created_by, t.due_at, t.feedback, t.business_outcome_status,
+                   t.result_code, t.result_detail, t.result_recorded_at, t.result_verified_at,
+                   t.result_verified_by, t.next_follow_at, t.requires_result_verification, t.source_type, t.source_id,
                    t.source_meeting_id, t.created_at, t.updated_at,
                    c.name AS customer_name, c.stage AS customer_stage
             FROM tasks t
@@ -73,8 +77,8 @@ public class TaskTraceService {
 
     private List<Map<String, Object>> enrich(List<Map<String, Object>> rows) {
         Map<String, String> chunkDocumentCache = new LinkedHashMap<>();
-        Map<String, CoachSource> coachCache = new LinkedHashMap<>();
-        Map<String, MeetingSource> meetingCache = new LinkedHashMap<>();
+        Map<String, SourceLoad<CoachSource>> coachCache = new LinkedHashMap<>();
+        Map<String, SourceLoad<MeetingSource>> meetingCache = new LinkedHashMap<>();
         Map<String, SourceRoot> rootCache = new LinkedHashMap<>();
         List<Map<String, Object>> result = new ArrayList<>();
         for (Map<String, Object> row : rows) {
@@ -98,8 +102,8 @@ public class TaskTraceService {
 
     private void attachTrace(Map<String, Object> task,
                              Map<String, String> chunkDocumentCache,
-                             Map<String, CoachSource> coachCache,
-                             Map<String, MeetingSource> meetingCache,
+                             Map<String, SourceLoad<CoachSource>> coachCache,
+                             Map<String, SourceLoad<MeetingSource>> meetingCache,
                              Map<String, SourceRoot> rootCache) {
         String directType = text(task.get("source_type"));
         String directId = text(task.get("source_id"));
@@ -119,7 +123,9 @@ public class TaskTraceService {
         task.put("source_chain", chain);
 
         if ("ai_coach".equals(root.type()) && !root.id().isBlank()) {
-            CoachSource source = coachCache.computeIfAbsent(root.id(), this::loadCoachSource);
+            SourceLoad<CoachSource> loaded = coachCache.computeIfAbsent(root.id(), this::loadCoachSource);
+            task.put("source_integrity", loaded.integrity());
+            CoachSource source = loaded.value();
             if (source != null) {
                 if (!source.sessionId().isBlank()) task.put("source_chat_session_id", source.sessionId());
                 if (!source.messageId().isBlank()) task.put("source_message_id", source.messageId());
@@ -130,17 +136,25 @@ public class TaskTraceService {
             }
         } else if (isMeetingSource(root.type()) && (!root.id().isBlank() || !root.meetingId().isBlank())) {
             String key = !root.id().isBlank() ? root.id() : "meeting:" + root.meetingId();
-            MeetingSource source = meetingCache.computeIfAbsent(key, ignored -> loadMeetingSource(root));
+            SourceLoad<MeetingSource> loaded = meetingCache.computeIfAbsent(key, ignored -> loadMeetingSource(root));
+            task.put("source_integrity", loaded.integrity());
+            MeetingSource source = loaded.value();
             if (source != null) {
                 if (!source.summary().isBlank()) task.put("source_summary", source.summary());
                 task.put("knowledge_evidence", parseKnowledgeEvidence(source.knowledgeSources(), chunkDocumentCache));
                 task.put("methodology_evidence", parseMethodologyEvidence(source.methodologySources()));
                 if (!source.closureStatus().isBlank()) task.put("source_status", meetingClosureLabel(source.closureStatus()));
             }
+        } else if ("ai_coach".equals(root.type()) || isMeetingSource(root.type())) {
+            // 老版本即使只留下了来源类型也应如实提示“无法追溯”，不能显示成普通人工任务。
+            task.put("source_integrity", "legacy_unavailable");
         }
 
         task.putIfAbsent("knowledge_evidence", List.of());
         task.putIfAbsent("methodology_evidence", List.of());
+        // 人工创建或尚未接入来源链的任务不能假装有 AI 证据；这不是失败，而是没有
+        // 可验证的 AI/会谈来源。
+        task.putIfAbsent("source_integrity", "not_applicable");
     }
 
     /** task_feedback 指向上一条任务，因此递归到最初的会谈/AI 教练来源。 */
@@ -170,7 +184,7 @@ public class TaskTraceService {
         }
     }
 
-    private CoachSource loadCoachSource(String proposalId) {
+    private SourceLoad<CoachSource> loadCoachSource(String proposalId) {
         try {
             List<Map<String, Object>> rows = jdbc.queryForList("""
                 SELECT ap.id AS proposal_id, ap.message_id, cm.session_id, cm.content AS question,
@@ -181,17 +195,21 @@ public class TaskTraceService {
                 LEFT JOIN tasks created_task ON created_task.id = ap.applied_task_id AND created_task.store_id = ap.store_id
                 WHERE ap.id = ? AND ap.store_id = ? LIMIT 1
                 """, proposalId, cur.storeId());
-            if (rows.isEmpty()) return null;
+            if (rows.isEmpty()) return new SourceLoad<>(null, "legacy_unavailable");
             Map<String, Object> row = rows.get(0);
-            return new CoachSource(text(row.get("message_id")), text(row.get("session_id")), text(row.get("question")),
+            return new SourceLoad<>(new CoachSource(text(row.get("message_id")), text(row.get("session_id")), text(row.get("question")),
                 text(row.get("retrieved_chunks")), text(row.get("methodology_sources")),
-                text(row.get("applied_task_status")), text(row.get("applied_task_feedback")));
-        } catch (Exception ignored) {
-            return null;
+                text(row.get("applied_task_status")), text(row.get("applied_task_feedback"))), "captured");
+        } catch (Exception error) {
+            // 不能把数据读取异常伪装成“历史未记录”。前端据此给出可重试提示，
+            // 便于区分真实旧数据与暂时性服务问题。
+            org.slf4j.LoggerFactory.getLogger(TaskTraceService.class)
+                .warn("读取 AI 教练来源失败: proposal={}, reason={}", proposalId, error.getMessage());
+            return new SourceLoad<>(null, "load_failed");
         }
     }
 
-    private MeetingSource loadMeetingSource(SourceRoot root) {
+    private SourceLoad<MeetingSource> loadMeetingSource(SourceRoot root) {
         try {
             List<Map<String, Object>> rows = jdbc.queryForList("""
                 SELECT ma.report, ma.summary, m.closure_status
@@ -202,15 +220,17 @@ public class TaskTraceService {
                 ORDER BY ma.updated_at DESC, ma.created_at DESC
                 LIMIT 1
                 """, cur.storeId(), root.id(), root.meetingId(), root.meetingId());
-            if (rows.isEmpty()) return null;
+            if (rows.isEmpty()) return new SourceLoad<>(null, "legacy_unavailable");
             Map<String, Object> row = rows.get(0);
             JsonNode report = readJson(text(row.get("report")));
-            return new MeetingSource(text(row.get("summary")),
+            return new SourceLoad<>(new MeetingSource(text(row.get("summary")),
                 report == null ? "" : jsonText(report.get("knowledge_sources")),
                 report == null ? "" : jsonText(report.get("methodology_sources")),
-                text(row.get("closure_status")));
-        } catch (Exception ignored) {
-            return null;
+                text(row.get("closure_status"))), report == null ? "legacy_unavailable" : "captured");
+        } catch (Exception error) {
+            org.slf4j.LoggerFactory.getLogger(TaskTraceService.class)
+                .warn("读取会谈来源失败: id={}, meeting={}, reason={}", root.id(), root.meetingId(), error.getMessage());
+            return new SourceLoad<>(null, "load_failed");
         }
     }
 
@@ -333,6 +353,7 @@ public class TaskTraceService {
     }
 
     private record SourceRoot(String type, String id, String meetingId) {}
+    private record SourceLoad<T>(T value, String integrity) {}
     private record CoachSource(String messageId, String sessionId, String question, String retrievedChunks,
                                String methodologySources, String appliedTaskStatus, String appliedTaskFeedback) {}
     private record MeetingSource(String summary, String knowledgeSources, String methodologySources, String closureStatus) {}

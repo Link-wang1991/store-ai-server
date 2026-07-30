@@ -64,6 +64,7 @@ public class ChatHistoryService {
                 null,
                 null,
                 null,
+                null,
                 null));
             result.add(new ChatMessageItem(
                     row.getId(),
@@ -71,6 +72,7 @@ public class ChatHistoryService {
                     row.getAiResponse(),
                     row.getRiskLevel(),
                     row.getAnswerType(),
+                    row.getGenerationMode() == null || row.getGenerationMode().isBlank() ? "legacy" : row.getGenerationMode(),
                     feedbackType(row.getId()),
                     readRetrieved(row.getRetrievedChunks()),
                     readMethodology(row.getMethodologySources()),
@@ -131,6 +133,7 @@ public class ChatHistoryService {
             String text,
             String riskLevel,
             String answerType,
+            String generationMode,
             String feedbackType,
             List<ChatPipelineService.RetrievedInfo> retrieved,
             List<ChatPipelineService.MethodologyInfo> methodology,

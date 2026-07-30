@@ -28,6 +28,15 @@ public class KnowledgeDocument {
     private String sourceMeetingId;
     private String reviewedBy;
     private OffsetDateTime reviewedAt;
+    /** draft / approved / needs_review / retired；只有 approved 且在有效期内的资料参与检索。 */
+    private String reviewStatus;
+    private OffsetDateTime effectiveAt;
+    private OffsetDateTime expiresAt;
+    private OffsetDateTime reviewDueAt;
+    private OffsetDateTime lastReviewedAt;
+    private String lastReviewedBy;
+    private String versionLabel;
+    private String reviewNote;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
 }

@@ -19,6 +19,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.jdbc.core.JdbcTemplate;
+
+import jakarta.servlet.http.HttpServletRequest;
+import java.net.InetAddress;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -45,6 +49,7 @@ public class AuthService {
     private final StoreRepository storeRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
+    private final JdbcTemplate jdbc;
 
     @Value("${app.local-preview-login.enabled:false}")
     private boolean localPreviewLoginEnabled;
@@ -110,8 +115,9 @@ public class AuthService {
      * 本机验收专用：在 local profile 中由配置明确打开，列出同一门店的真实账号角色。
      * 不返回邮箱、密码或用户 ID，避免把账号信息当作免密接口的返回内容。
      */
-    public List<LocalPreviewAccount> listLocalPreviewAccounts() {
-        LocalPreviewStore previewStore = requireLocalPreviewStore();
+    public List<LocalPreviewAccount> listLocalPreviewAccounts(HttpServletRequest request) {
+        LocalPreviewStore previewStore = requireLocalPreviewStore(request);
+        audit(previewStore.storeId(), null, "accounts_listed", request);
         return employeeRepository.selectList(new LambdaQueryWrapper<Employee>()
                 .eq(Employee::getStoreId, previewStore.storeId())
                 .eq(Employee::getStatus, "active")
@@ -130,12 +136,13 @@ public class AuthService {
      * 本机验收专用的短时角色令牌。只能进入配置 owner 所在门店的已启用员工，
      * 且仅在 local profile 明确开启时可调用，不校验也不会读取员工密码。
      */
-    public LoginResponse localPreviewLogin(String employeeId) {
+    public LoginResponse localPreviewLogin(String employeeId, HttpServletRequest request) {
         if (employeeId == null || employeeId.isBlank()) throw BizException.badRequest("请选择要体验的角色");
-        LocalPreviewStore previewStore = requireLocalPreviewStore();
+        LocalPreviewStore previewStore = requireLocalPreviewStore(request);
         Employee employee = employeeRepository.selectById(employeeId);
         if (employee == null || !previewStore.storeId().equals(employee.getStoreId())
                 || !"active".equals(employee.getStatus()) || employee.getUserId() == null) {
+            audit(previewStore.storeId(), employeeId, "login_rejected", request);
             throw BizException.notFound("可体验的员工账号");
         }
         User user = userRepository.selectById(employee.getUserId());
@@ -161,6 +168,7 @@ public class AuthService {
             "storeName", storeName,
             "localPreview", true
         ), LOCAL_PREVIEW_TTL_MILLIS);
+        audit(previewStore.storeId(), employee.getId(), "login_issued", request);
         return new LoginResponse(token, user.getId(), employee.getId(), employee.getStoreId(),
             employee.getRole(), roleLabel(employee.getRole()), storeName, name == null ? "" : name);
     }
@@ -236,8 +244,12 @@ public class AuthService {
         return ROLE_LABELS.getOrDefault(role, role == null ? "" : role);
     }
 
-    private LocalPreviewStore requireLocalPreviewStore() {
+    private LocalPreviewStore requireLocalPreviewStore(HttpServletRequest request) {
         if (!localPreviewLoginEnabled) throw BizException.notFound("本机角色体验");
+        if (!isLoopbackRequest(request)) {
+            audit(null, null, "remote_rejected", request);
+            throw BizException.notFound("本机角色体验");
+        }
         User owner = userRepository.selectOne(new LambdaQueryWrapper<User>()
             .eq(User::getEmail, localPreviewOwnerEmail.trim().toLowerCase()));
         if (owner == null) throw BizException.badRequest("未找到本机体验的老板账号，请先使用正常登录");
@@ -246,6 +258,36 @@ public class AuthService {
             .eq(Employee::getStatus, "active"));
         if (employee == null) throw BizException.badRequest("本机体验老板账号未启用");
         return new LocalPreviewStore(employee.getStoreId());
+    }
+
+    /**
+     * 后端的免密接口只接受由本机 Next 同源代理转发的 loopback 请求。手机可访问
+     * Next 页面，但不能绕过它直接调用 8080；公网/直连地址即便误开配置也会被拒绝。
+     */
+    private boolean isLoopbackRequest(HttpServletRequest request) {
+        if (request == null) return false;
+        try { return InetAddress.getByName(request.getRemoteAddr()).isLoopbackAddress(); }
+        catch (Exception ignored) { return false; }
+    }
+
+    private void audit(String storeId, String targetEmployeeId, String action, HttpServletRequest request) {
+        try {
+            jdbc.update("""
+                INSERT INTO role_preview_audit
+                (id, store_id, target_employee_id, action, request_ip, request_origin, user_agent, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+                """, java.util.UUID.randomUUID().toString().replace("-", ""), storeId, targetEmployeeId, action,
+                request == null ? null : request.getRemoteAddr(),
+                request == null ? null : trim(request.getHeader("X-Store-AI-Preview-Origin"), 255),
+                request == null ? null : trim(request.getHeader("User-Agent"), 500));
+        } catch (Exception ignored) {
+            // 审计失败不得导致正式登录或其他业务受影响；本机体验本身仍由上方边界保护。
+        }
+    }
+
+    private String trim(String value, int max) {
+        if (value == null || value.isBlank()) return null;
+        return value.length() > max ? value.substring(0, max) : value;
     }
 
     private static String entryFor(String role) {

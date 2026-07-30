@@ -89,8 +89,7 @@ public class KnowledgeService {
         doc.setRemark(remark);
         doc.setFileUrl(fileUrl);
         doc.setFileType(getFileExt(file.getOriginalFilename()));
-        doc.setCreatedAt(OffsetDateTime.now());
-        doc.setUpdatedAt(OffsetDateTime.now());
+        applyInitialLifecycle(doc, status);
         docRepo.insert(doc);
 
         // 4. 切分、向量化并落库。向量服务不可用时保留关键词检索，不阻断上传。
@@ -125,8 +124,7 @@ public class KnowledgeService {
         doc.setVisibleRoles(toJsonArray(visibleRoles));
         doc.setTags(tags);
         doc.setRemark(remark);
-        doc.setCreatedAt(OffsetDateTime.now());
-        doc.setUpdatedAt(OffsetDateTime.now());
+        applyInitialLifecycle(doc, status);
         docRepo.insert(doc);
 
         List<String> chunks = saveChunks(doc, chunkText(content));
@@ -139,6 +137,19 @@ public class KnowledgeService {
         return "disabled".equalsIgnoreCase(status) || "inactive".equalsIgnoreCase(status)
             ? "inactive"
             : "active";
+    }
+
+    /** 新资料默认可用，但会生成明确的复核日期；历史资料保留为 approved，避免升级时突然消失。 */
+    private void applyInitialLifecycle(KnowledgeDocument doc, String status) {
+        OffsetDateTime now = OffsetDateTime.now();
+        String normalized = normalizeStatus(status);
+        doc.setStatus(normalized);
+        doc.setReviewStatus("active".equals(normalized) ? "approved" : "draft");
+        doc.setEffectiveAt(now);
+        doc.setReviewDueAt(now.plusDays(180));
+        doc.setVersionLabel("v1");
+        doc.setCreatedAt(now);
+        doc.setUpdatedAt(now);
     }
 
     /**
@@ -222,8 +233,39 @@ public class KnowledgeService {
         }
         qw.orderByDesc(KnowledgeDocument::getUpdatedAt);
         return docRepo.selectList(qw).stream()
+            .filter(this::isLifecycleEligible)
             .filter(this::isVisibleToCurrentRole)
             .toList();
+    }
+
+    /** 店长更新知识有效期与复核状态；退休资料从后续检索中移除，但原记录仍保留可审计。 */
+    @Transactional
+    public KnowledgeDocument updateLifecycle(String docId, String reviewStatus, String effectiveAt,
+                                             String expiresAt, String reviewDueAt, String versionLabel, String reviewNote) {
+        if (!cur.isAdmin()) throw BizException.forbidden();
+        KnowledgeDocument doc = docRepo.selectById(docId);
+        if (doc == null || !cur.storeId().equals(doc.getStoreId())) throw BizException.notFound("知识资料");
+        String status = normalizeReviewStatus(reviewStatus);
+        OffsetDateTime effective = parseLifecycleDate(effectiveAt, doc.getEffectiveAt());
+        OffsetDateTime expires = parseLifecycleDate(expiresAt, doc.getExpiresAt());
+        OffsetDateTime due = parseLifecycleDate(reviewDueAt, doc.getReviewDueAt());
+        if (effective != null && expires != null && !expires.isAfter(effective)) {
+            throw BizException.badRequest("失效日期必须晚于生效日期");
+        }
+        if (versionLabel != null && versionLabel.trim().length() > 64) throw BizException.badRequest("版本号不能超过 64 个字符");
+        if (reviewNote != null && reviewNote.trim().length() > 2000) throw BizException.badRequest("复核说明不能超过 2000 字");
+        doc.setReviewStatus(status);
+        doc.setEffectiveAt(effective);
+        doc.setExpiresAt(expires);
+        doc.setReviewDueAt(due);
+        doc.setVersionLabel(blankToNull(versionLabel));
+        doc.setReviewNote(blankToNull(reviewNote));
+        doc.setLastReviewedAt(OffsetDateTime.now());
+        doc.setLastReviewedBy(cur.employeeId());
+        doc.setStatus("retired".equals(status) ? "inactive" : doc.getStatus());
+        doc.setUpdatedAt(OffsetDateTime.now());
+        docRepo.updateById(doc);
+        return doc;
     }
 
     // ==================== 检索 ====================
@@ -258,6 +300,7 @@ public class KnowledgeService {
             .eq(KnowledgeDocument::getStoreId, storeId)
             .eq(KnowledgeDocument::getStatus, "active"))
             .stream()
+            .filter(this::isLifecycleEligible)
             .filter(doc -> isVisibleToRole(doc, role))
             .toList();
         if (docs.isEmpty()) return Collections.emptyList();
@@ -309,6 +352,41 @@ public class KnowledgeService {
     /** 空角色列表代表全员可见；格式异常时默认拒绝，避免资料意外越权。 */
     private boolean isVisibleToCurrentRole(KnowledgeDocument doc) {
         return isVisibleToRole(doc, cur.role());
+    }
+
+    private boolean isLifecycleEligible(KnowledgeDocument doc) {
+        if (!"approved".equalsIgnoreCase(defaultedReviewStatus(doc.getReviewStatus()))) return false;
+        OffsetDateTime now = OffsetDateTime.now();
+        return (doc.getEffectiveAt() == null || !doc.getEffectiveAt().isAfter(now))
+            && (doc.getExpiresAt() == null || doc.getExpiresAt().isAfter(now));
+    }
+
+    private String defaultedReviewStatus(String value) {
+        return value == null || value.isBlank() ? "approved" : value.trim();
+    }
+
+    private String normalizeReviewStatus(String value) {
+        String status = value == null || value.isBlank() ? "approved" : value.trim().toLowerCase(Locale.ROOT);
+        if (!Set.of("draft", "approved", "needs_review", "retired").contains(status)) {
+            throw BizException.badRequest("知识复核状态仅支持 draft、approved、needs_review、retired");
+        }
+        return status;
+    }
+
+    private OffsetDateTime parseLifecycleDate(String raw, OffsetDateTime fallback) {
+        if (raw == null) return fallback;
+        String value = raw.trim();
+        if (value.isBlank()) return null;
+        try { return OffsetDateTime.parse(value); }
+        catch (Exception ignored) {
+            try { return java.time.LocalDate.parse(value).atStartOfDay(java.time.ZoneId.systemDefault()).toOffsetDateTime(); }
+            catch (Exception e) { throw BizException.badRequest("日期格式无效，请使用 YYYY-MM-DD"); }
+        }
+    }
+
+    private String blankToNull(String value) {
+        if (value == null || value.trim().isBlank()) return null;
+        return value.trim();
     }
 
     private boolean isVisibleToRole(KnowledgeDocument doc, String role) {

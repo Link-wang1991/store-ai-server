@@ -15,6 +15,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
+import jakarta.servlet.http.HttpServletRequest;
 
 import java.util.Map;
 import java.util.List;
@@ -47,14 +48,14 @@ public class AuthController {
 
     /** 仅 local profile 开启的免密角色体验入口，见 application-local.yml。 */
     @GetMapping("/local-preview-accounts")
-    public ApiResponse<List<AuthService.LocalPreviewAccount>> localPreviewAccounts() {
-        return ApiResponse.ok(authService.listLocalPreviewAccounts());
+    public ApiResponse<List<AuthService.LocalPreviewAccount>> localPreviewAccounts(HttpServletRequest request) {
+        return ApiResponse.ok(authService.listLocalPreviewAccounts(request));
     }
 
     /** 仅 local profile 开启的免密角色体验入口，签发四小时短时令牌。 */
     @PostMapping("/local-preview-login")
-    public ApiResponse<LoginResponse> localPreviewLogin(@RequestBody LocalPreviewLoginRequest req) {
-        return ApiResponse.ok(authService.localPreviewLogin(req.employeeId()));
+    public ApiResponse<LoginResponse> localPreviewLogin(@RequestBody LocalPreviewLoginRequest req, HttpServletRequest request) {
+        return ApiResponse.ok(authService.localPreviewLogin(req.employeeId(), request));
     }
 
     @PostMapping("/register")

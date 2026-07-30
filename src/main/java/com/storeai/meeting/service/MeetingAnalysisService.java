@@ -90,6 +90,12 @@ public class MeetingAnalysisService {
             }
         } catch (Exception e) {
             log.error("处理会谈失败: meeting={}, error={}", meetingId, e.getMessage());
+            // 模型/网络异常不是“录音坏了”。保留已完成的逐句转写，按受控节奏重试，
+            // 到达上限后才进入用户可见的失败状态，绝不写入空报告或伪造完成状态。
+            if ("analyzing".equals(status)) {
+                return scheduleAnalysisRetry(meetingId, "analysis_exception",
+                    "AI 分析暂时不可用，系统会保留逐字稿并自动重试。", e);
+            }
             String reason = userFacingProcessError(status, e);
             jdbc.update("""
                 UPDATE meetings
@@ -120,6 +126,7 @@ public class MeetingAnalysisService {
         List<String> ids = jdbc.queryForList("""
             SELECT id FROM meetings
             WHERE status IN ('transcribing', 'analyzing')
+              AND (status <> 'analyzing' OR analysis_retry_at IS NULL OR analysis_retry_at <= NOW())
             ORDER BY updated_at ASC
             LIMIT 20
             """, String.class);
@@ -348,10 +355,54 @@ public class MeetingAnalysisService {
         return currentStatus(meetingId);
     }
 
+    /**
+     * 模型不可用或返回非法结构时的受控重试。
+     *
+     * <p>逐字稿和录音均已落库，因此这里绝不重新上传或重新提交 ASR；只把会谈留在
+     * analyzing 状态并记录下一次可领取时间。三次仍失败才交给用户手动重新分析，
+     * 防止后台无限调用模型、也避免空报告污染任务和客户记忆。</p>
+     */
+    private Map<String, Object> scheduleAnalysisRetry(String meetingId, String errorCode,
+                                                       String userMessage, Exception error) {
+        Integer current = jdbc.queryForObject(
+            "SELECT COALESCE(analysis_attempts, 0) FROM meetings WHERE id = ?", Integer.class, meetingId);
+        int attempts = (current == null ? 0 : current) + 1;
+        if (attempts >= 3) {
+            String reason = "AI 分析连续失败 3 次，逐字稿已保留。请检查模型服务后点击“重新分析”。";
+            jdbc.update("""
+                UPDATE meetings
+                SET status = 'failed', analysis_status = 'failed', analysis_attempts = ?,
+                    analysis_retry_at = NULL, analysis_error_code = ?, fail_reason = ?, updated_at = NOW()
+                WHERE id = ? AND status = 'analyzing'
+                """, attempts, errorCode, reason, meetingId);
+            log.warn("会谈分析达到重试上限: meeting={}, code={}, error={}", meetingId, errorCode,
+                error == null ? "" : error.getMessage());
+            return Map.of("status", "failed", "error", reason);
+        }
+
+        int delaySeconds = switch (attempts) {
+            case 1 -> 30;
+            case 2 -> 90;
+            default -> 180;
+        };
+        String detail = userMessage + "（第 " + attempts + "/3 次，约 " + delaySeconds + " 秒后重试）";
+        jdbc.update("""
+            UPDATE meetings
+            SET status = 'analyzing', analysis_status = 'pending', analysis_attempts = ?,
+                analysis_retry_at = DATE_ADD(NOW(), INTERVAL ? SECOND), analysis_error_code = ?,
+                fail_reason = ?, updated_at = NOW()
+            WHERE id = ? AND status = 'analyzing'
+            """, attempts, delaySeconds, errorCode, detail, meetingId);
+        log.warn("会谈分析待重试: meeting={}, attempt={}, code={}, error={}", meetingId, attempts, errorCode,
+            error == null ? "" : error.getMessage());
+        return currentStatus(meetingId);
+    }
+
     private Map<String, Object> currentStatus(String meetingId) {
         List<Map<String, Object>> rows = jdbc.queryForList("""
             SELECT status, transcript_status, fail_reason, asr_error_code, asr_retry_at,
-                   asr_submit_attempts, asr_poll_failures
+                   asr_submit_attempts, asr_poll_failures, analysis_status,
+                   analysis_attempts, analysis_retry_at, analysis_error_code
             FROM meetings WHERE id = ?
             """, meetingId);
         if (rows.isEmpty()) return Map.of("status", "failed", "error", "会谈不存在");
@@ -369,6 +420,10 @@ public class MeetingAnalysisService {
         payload.put("retry_at", row.get("asr_retry_at"));
         payload.put("submit_attempts", row.get("asr_submit_attempts"));
         payload.put("poll_failures", row.get("asr_poll_failures"));
+        payload.put("analysis_status", row.get("analysis_status"));
+        payload.put("analysis_attempts", row.get("analysis_attempts"));
+        payload.put("analysis_retry_at", row.get("analysis_retry_at"));
+        payload.put("analysis_error_code", row.get("analysis_error_code"));
         return payload;
     }
 
@@ -422,7 +477,12 @@ public class MeetingAnalysisService {
                 "FROM meeting_analysis WHERE meeting_id = ? AND store_id = ? " +
                 "ORDER BY updated_at DESC, created_at DESC LIMIT 1", id, storeId);
         if (!existing.isEmpty() && !reprocessing) {
-            jdbc.update("UPDATE meetings SET status = 'done', analysis_status = 'done' WHERE id = ?", id);
+            jdbc.update("""
+                UPDATE meetings
+                SET status = 'done', analysis_status = 'done', fail_reason = NULL,
+                    analysis_attempts = 0, analysis_retry_at = NULL, analysis_error_code = NULL, updated_at = NOW()
+                WHERE id = ?
+                """, id);
             return Map.of("status", "done");
         }
 
@@ -457,7 +517,10 @@ public class MeetingAnalysisService {
         // ① + ② 结构化输出 + 分段分析。会谈报告和 AI 教练使用同一套已启用资料，
         // 但只传与本次场景、客户表达最相关的片段，避免泛泛套用整库话术。
         Map<String, Object> analysis = analyze(lines, scene, roleHint, knowledgeContext);
-        if (analysis == null) analysis = emptyReport();
+        if (analysis == null) {
+            return scheduleAnalysisRetry(id, "model_invalid_response",
+                "AI 未返回可用的结构化分析，逐字稿已保留，系统会自动重试。", null);
+        }
         log.info("会谈模型分析完成: meeting={}, fieldCount={}, knowledgeHits={}, methodologyHits={}",
             id, analysis.size(), knowledge.size(), methodology.size());
 
@@ -561,7 +624,12 @@ public class MeetingAnalysisService {
             log.info("会谈报告已创建: meeting={}, analysis={}", id, analysisId);
         }
 
-        jdbc.update("UPDATE meetings SET status = 'done', analysis_status = 'done', quality_score = ?, fail_reason = NULL, updated_at = NOW() WHERE id = ?", qualityScore, id);
+        jdbc.update("""
+            UPDATE meetings
+            SET status = 'done', analysis_status = 'done', quality_score = ?, fail_reason = NULL,
+                analysis_attempts = 0, analysis_retry_at = NULL, analysis_error_code = NULL, updated_at = NOW()
+            WHERE id = ?
+            """, qualityScore, id);
 
         // 人工修订后的重新分析不会直接覆盖既有业务动作；若下一步计划发生变化，
         // 生成一个可追溯的确认任务，等待员工明确选择应用或保留旧计划。
@@ -586,8 +654,7 @@ public class MeetingAnalysisService {
         if (full.length() <= SINGLE_LIMIT) {
             Map<String, Object> r = doAnalysisCall(full, scene, roleHint, knowledgeContext, false);
             if (r != null) return r;
-            // 调用失败兜底：返回空报告，避免状态卡死
-            return emptyReport();
+            return null;
         }
 
         // ② 分段分析：按 segment 边界切分，每段独立提取要素，最后合并
@@ -597,10 +664,12 @@ public class MeetingAnalysisService {
             Map<String, Object> part = doAnalysisCall(String.join("\n", chunk), scene, roleHint, knowledgeContext, true);
             if (part != null) partials.add(part);
         }
-        if (partials.isEmpty()) return emptyReport();
+        // 长会谈任一段遗漏都会让综合结论失真；宁可保留转写并重试，也不能以残缺
+        // 片段生成“已完成”的分析报告。
+        if (partials.size() != chunks.size()) return null;
 
         Map<String, Object> merged = mergePartials(partials, scene, roleHint, knowledgeContext);
-        return merged != null ? merged : emptyReport();
+        return merged;
     }
 
     /**
@@ -638,9 +707,7 @@ public class MeetingAnalysisService {
         } catch (Exception e) {
             log.warn("分析 JSON 解析失败，原样保存: {}", aiResult);
         }
-        Map<String, Object> fallback = new HashMap<>();
-        fallback.put("raw", aiResult);
-        return fallback;
+        return null;
     }
 
     /**

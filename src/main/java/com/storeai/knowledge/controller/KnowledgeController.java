@@ -6,6 +6,7 @@ import com.storeai.common.util.CurrentUser;
 import com.storeai.knowledge.entity.KnowledgeDocument;
 import com.storeai.knowledge.service.KnowledgeRetrieveService.RetrievedChunk;
 import com.storeai.knowledge.service.KnowledgeService;
+import com.storeai.knowledge.service.KnowledgeRetrievalEvaluationService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +30,7 @@ import java.util.Map;
 public class KnowledgeController {
 
     private final KnowledgeService knowledgeService;
+    private final KnowledgeRetrievalEvaluationService retrievalEvaluationService;
     private final CurrentUser cur;
 
     @GetMapping
@@ -62,6 +64,14 @@ public class KnowledgeController {
     public ApiResponse<Void> toggle(@PathVariable String id) {
         knowledgeService.toggleStatus(id);
         return ApiResponse.ok();
+    }
+
+    /** 知识资料的生效、到期和复核状态直接影响后续检索；变更必须由店长/老板留痕。 */
+    @PostMapping("/{id}/lifecycle")
+    public ApiResponse<KnowledgeDocument> updateLifecycle(@PathVariable String id,
+                                                            @RequestBody LifecycleRequest req) {
+        return ApiResponse.ok(knowledgeService.updateLifecycle(id, req.reviewStatus(), req.effectiveAt(),
+            req.expiresAt(), req.reviewDueAt(), req.versionLabel(), req.reviewNote()));
     }
 
     @PostMapping("/{id}/delete")
@@ -103,6 +113,23 @@ public class KnowledgeController {
         return ApiResponse.ok(knowledgeService.reindexEmbeddings());
     }
 
+    /** 用真实题目检查检索结果；期望资料可不填，但不填的记录不计入命中率。 */
+    @PostMapping("/evaluations")
+    public ApiResponse<Map<String, Object>> evaluateRetrieval(@RequestBody RetrievalEvaluationRequest req) {
+        return ApiResponse.ok(retrievalEvaluationService.run(req.question(), req.expectedDocumentId()));
+    }
+
+    @GetMapping("/evaluations")
+    public ApiResponse<Map<String, Object>> listRetrievalEvaluations() {
+        return ApiResponse.ok(retrievalEvaluationService.list());
+    }
+
+    @PostMapping("/evaluations/{id}/review")
+    public ApiResponse<Map<String, Object>> reviewRetrievalEvaluation(@PathVariable String id,
+                                                                        @RequestBody RetrievalEvaluationReviewRequest req) {
+        return ApiResponse.ok(retrievalEvaluationService.review(id, req.status(), req.note()));
+    }
+
     public record ManualRequest(
         @NotBlank String title,
         @NotBlank String category,
@@ -112,4 +139,16 @@ public class KnowledgeController {
         String remark,
         String status
     ) {}
+
+    public record LifecycleRequest(
+        String reviewStatus,
+        String effectiveAt,
+        String expiresAt,
+        String reviewDueAt,
+        String versionLabel,
+        String reviewNote
+    ) {}
+
+    public record RetrievalEvaluationRequest(String question, String expectedDocumentId) {}
+    public record RetrievalEvaluationReviewRequest(String status, String note) {}
 }

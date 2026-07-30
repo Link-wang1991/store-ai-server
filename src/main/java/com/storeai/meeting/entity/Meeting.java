@@ -21,6 +21,11 @@ public class Meeting {
     private String customerName;
     private Integer duration;
     private String audioUrl;
+    /** pending / uploading / stored / failed；用于把设备上传和 ASR 故障分开诊断。 */
+    private String audioUploadState;
+    private Long audioBytes;
+    private String audioMimeType;
+    private OffsetDateTime audioReceivedAt;
     private String asrTaskId;
     private Integer asrSubmitAttempts;
     private OffsetDateTime asrSubmitStartedAt;
@@ -31,6 +36,9 @@ public class Meeting {
     private String transcriptStatus;
     private String failReason;
     private String analysisStatus;
+    private Integer analysisAttempts;
+    private OffsetDateTime analysisRetryAt;
+    private String analysisErrorCode;
     /** 人工修订转写后，新的跟进行动是否仍待员工确认。 */
     private String actionReviewStatus;
     /** 会谈分析后的任务/记忆/审核闭环状态：pending / processing / completed / partial_failed。 */

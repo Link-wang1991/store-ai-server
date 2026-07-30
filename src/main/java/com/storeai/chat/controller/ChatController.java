@@ -22,9 +22,11 @@ public class ChatController {
     private final AiActionProposalService actionProposalService;
 
     @PostMapping
-    public ApiResponse<AnswerResult> chat(@RequestBody ChatRequest req) {
+    public ApiResponse<AnswerResult> chat(
+            @RequestBody ChatRequest req,
+            @RequestHeader(value = "X-Idempotency-Key", required = false) String clientRequestId) {
         return ApiResponse.ok(pipeline.answer(
-                req.question(), req.sessionId(), req.customerId()));
+                req.question(), req.sessionId(), req.customerId(), clientRequestId));
     }
 
     @GetMapping("/sessions")

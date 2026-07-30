@@ -25,6 +25,15 @@ public class Task {
     private String customerId;
     private OffsetDateTime dueAt;
     private String feedback;
+    /** 动作完成后的真实业务状态，不能用 status=done 代替。 */
+    private String businessOutcomeStatus;
+    private String resultCode;
+    private String resultDetail;
+    private OffsetDateTime resultRecordedAt;
+    private OffsetDateTime resultVerifiedAt;
+    private String resultVerifiedBy;
+    private OffsetDateTime nextFollowAt;
+    private Boolean requiresResultVerification;
     /** 自动生成任务的来源，例如 meeting_analysis / manual_meeting_candidate。 */
     private String sourceType;
     /** 来源分析、候选或其它业务记录 ID。 */
