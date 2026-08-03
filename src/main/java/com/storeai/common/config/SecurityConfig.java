@@ -37,7 +37,8 @@ public class SecurityConfig {
                 // 公开接口
                 .requestMatchers(
                     "/api/auth/login",
-                    "/api/auth/register",
+                    "/api/auth/send-code",
+                    "/api/auth/login-by-phone",
                     "/api/auth/demo-login",
                     "/api/auth/local-preview-accounts",
                     "/api/auth/local-preview-login",

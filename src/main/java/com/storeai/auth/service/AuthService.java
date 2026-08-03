@@ -3,8 +3,9 @@ package com.storeai.auth.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.storeai.auth.dto.LoginRequest;
 import com.storeai.auth.dto.LoginResponse;
-import com.storeai.auth.dto.RegisterRequest;
-import com.storeai.auth.dto.RegisterResponse;
+import com.storeai.auth.dto.SendCodeRequest;
+import com.storeai.auth.dto.SendCodeResponse;
+import com.storeai.auth.dto.PhoneLoginRequest;
 import com.storeai.auth.entity.Employee;
 import com.storeai.auth.entity.Store;
 import com.storeai.auth.entity.User;
@@ -15,6 +16,7 @@ import com.storeai.auth.security.JwtUtil;
 import com.storeai.auth.security.UserDetailsImpl;
 import com.storeai.common.exception.BizException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -23,16 +25,23 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.InetAddress;
-
+import java.security.SecureRandom;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class AuthService {
 
     private static final long LOCAL_PREVIEW_TTL_MILLIS = 4 * 60 * 60 * 1000L;
+    private static final long SMS_CODE_TTL_MILLIS = 5 * 60 * 1000L;
+    private static final long SMS_RESEND_INTERVAL_MILLIS = 60 * 1000L;
+    private static final int SMS_MAX_ATTEMPTS = 5;
+    private static final SecureRandom RANDOM = new SecureRandom();
 
     private static final Map<String, String> ROLE_LABELS = Map.of(
         "owner", "老板",
@@ -50,6 +59,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
     private final JdbcTemplate jdbc;
+    private final SmsService smsService;
 
     @Value("${app.local-preview-login.enabled:false}")
     private boolean localPreviewLoginEnabled;
@@ -57,20 +67,119 @@ public class AuthService {
     @Value("${app.local-preview-login.owner-email:owner@demo.com}")
     private String localPreviewOwnerEmail;
 
+    /** mock 模式下 send-code 会在响应里回传验证码，方便联调；生产/真实短信不下发。 */
+    @Value("${app.sms.mode:mock}")
+    private String smsMode;
+
     public LoginResponse login(LoginRequest req) {
-        // 查找用户
-        var user = userRepository.selectOne(
-            new LambdaQueryWrapper<User>()
-                .eq(User::getEmail, req.getEmail().toLowerCase().trim()));
-        if (user == null) {
-            throw BizException.badRequest("邮箱或密码错误");
-        }
+        String phone = req.getPhone() == null ? null : req.getPhone().trim();
+        String email = req.getEmail() == null ? null : req.getEmail().trim().toLowerCase();
 
-        // 验证密码
+        User user;
+        if (phone != null && !phone.isBlank()) {
+            user = userRepository.selectOne(new LambdaQueryWrapper<User>().eq(User::getPhone, phone));
+        } else if (email != null && !email.isBlank()) {
+            user = userRepository.selectOne(new LambdaQueryWrapper<User>().eq(User::getEmail, email));
+        } else {
+            throw BizException.badRequest("请输入手机号或邮箱");
+        }
+        if (user == null || user.getPasswordHash() == null) {
+            throw BizException.badRequest("账号或密码错误");
+        }
         if (!passwordEncoder.matches(req.getPassword(), user.getPasswordHash())) {
-            throw BizException.badRequest("邮箱或密码错误");
+            throw BizException.badRequest("账号或密码错误");
+        }
+        return loginResponseFor(user);
+    }
+
+    /** 手机号 + 验证码登录。账号必须由超级管理员预录入，不开放自助注册。 */
+    @Transactional
+    public LoginResponse loginByPhone(PhoneLoginRequest req) {
+        String phone = req.getPhone().trim();
+        String code = req.getCode() == null ? "" : req.getCode().trim();
+        verifyCode(phone, "login", code);
+
+        User user = userRepository.selectOne(new LambdaQueryWrapper<User>().eq(User::getPhone, phone));
+        if (user == null) {
+            throw BizException.badRequest("该手机号尚未开通账号，请联系门店管理员");
+        }
+        return loginResponseFor(user);
+    }
+
+    /** 发送验证码：限频、存库，并交给 SmsService 下发（mock 模式回传 devCode）。 */
+    @Transactional
+    public SendCodeResponse sendCode(SendCodeRequest req) {
+        String phone = req.getPhone().trim();
+        String type = (req.getType() == null || req.getType().isBlank()) ? "login" : req.getType();
+
+        // 重发限频：距上次发送不足间隔则拒绝
+        CodeRow last = latestCode(phone, type);
+        if (last != null && last.createdAt != null) {
+            long elapsed = System.currentTimeMillis() - last.createdAt.getTime();
+            if (elapsed < SMS_RESEND_INTERVAL_MILLIS) {
+                long remain = (SMS_RESEND_INTERVAL_MILLIS - elapsed) / 1000;
+                return new SendCodeResponse(false, null, (int) Math.max(remain, 1));
+            }
         }
 
+        String code = String.format("%06d", RANDOM.nextInt(1_000_000));
+        String id = UUID.randomUUID().toString().replace("-", "");
+        jdbc.update(
+            "INSERT INTO sms_verification_codes (id, phone, code, type, expires_at, attempts, used, created_at) VALUES (?, ?, ?, ?, ?, 0, 0, NOW())",
+            id, phone, code, type,
+            java.sql.Timestamp.from(java.time.Instant.now().plusMillis(SMS_CODE_TTL_MILLIS))
+        );
+
+        smsService.sendCode(phone, code, type);
+
+        if ("mock".equals(smsMode)) {
+            return new SendCodeResponse(true, code, (int) (SMS_RESEND_INTERVAL_MILLIS / 1000));
+        }
+        return new SendCodeResponse(true, null, (int) (SMS_RESEND_INTERVAL_MILLIS / 1000));
+    }
+
+    private void verifyCode(String phone, String type, String inputCode) {
+        if (inputCode.isBlank()) throw BizException.badRequest("请填写验证码");
+        CodeRow row = latestCode(phone, type);
+        if (row == null) throw BizException.badRequest("请先获取验证码");
+        if (row.used) throw BizException.badRequest("验证码已使用，请重新获取");
+        if (row.expiresAt != null && row.expiresAt.before(java.sql.Timestamp.from(java.time.Instant.now()))) {
+            throw BizException.badRequest("验证码已过期，请重新获取");
+        }
+        if (row.attempts >= SMS_MAX_ATTEMPTS) throw BizException.badRequest("尝试次数过多，请重新获取验证码");
+        if (!inputCode.equals(row.code)) {
+            jdbc.update("UPDATE sms_verification_codes SET attempts = attempts + 1 WHERE id = ?", row.id);
+            throw BizException.badRequest("验证码不正确");
+        }
+        jdbc.update("UPDATE sms_verification_codes SET used = 1 WHERE id = ?", row.id);
+    }
+
+    /** 取某手机号最新一条验证码记录（用 RowMapper 显式取 Timestamp，规避驱动返回 LocalDateTime 的类型差异）。 */
+    private CodeRow latestCode(String phone, String type) {
+        String sql = "SELECT id, code, expires_at, attempts, used, created_at FROM sms_verification_codes WHERE phone = ? AND type = ? ORDER BY created_at DESC LIMIT 1";
+        List<CodeRow> rows = jdbc.query(sql, (rs, i) -> {
+            CodeRow r = new CodeRow();
+            r.id = rs.getString("id");
+            r.code = rs.getString("code");
+            r.expiresAt = rs.getTimestamp("expires_at");
+            r.createdAt = rs.getTimestamp("created_at");
+            r.attempts = rs.getInt("attempts");
+            r.used = rs.getBoolean("used");
+            return r;
+        }, phone, type);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    private static class CodeRow {
+        String id;
+        String code;
+        java.sql.Timestamp expiresAt;
+        java.sql.Timestamp createdAt;
+        int attempts;
+        boolean used;
+    }
+
+    private LoginResponse loginResponseFor(User user) {
         // 查找关联员工
         var employee = employeeRepository.selectOne(
             new LambdaQueryWrapper<Employee>().apply("user_id = {0}", user.getId()));
@@ -171,73 +280,6 @@ public class AuthService {
         audit(previewStore.storeId(), employee.getId(), "login_issued", request);
         return new LoginResponse(token, user.getId(), employee.getId(), employee.getStoreId(),
             employee.getRole(), roleLabel(employee.getRole()), storeName, name == null ? "" : name);
-    }
-
-    @Transactional
-    public RegisterResponse register(RegisterRequest req) {
-        String email = req.getEmail().toLowerCase().trim();
-
-        // 检查邮箱是否已注册
-        var existing = userRepository.selectOne(
-            new LambdaQueryWrapper<User>().eq(User::getEmail, email));
-        if (existing != null) {
-            throw BizException.badRequest("该邮箱已被注册");
-        }
-
-        // 创建用户
-        var user = new User();
-        user.setEmail(email);
-        user.setName(req.getName());
-        user.setPasswordHash(passwordEncoder.encode(req.getPassword()));
-        user.setCreatedAt(OffsetDateTime.now());
-        userRepository.insert(user);
-
-        // 创建门店
-        String storeName = req.getStoreName();
-        if (storeName == null || storeName.isBlank()) {
-            storeName = req.getName() + "的门店";
-        }
-        var store = new Store();
-        store.setName(storeName);
-        store.setOwnerId(user.getId());
-        store.setCreatedAt(OffsetDateTime.now());
-        store.setUpdatedAt(OffsetDateTime.now());
-        storeRepository.insert(store);
-
-        // 创建员工记录（owner 角色）
-        var employee = new Employee();
-        employee.setStoreId(store.getId());
-        employee.setUserId(user.getId());
-        employee.setName(req.getName());
-        employee.setRole("owner");
-        employee.setStatus("active");
-        employee.setDataScope("store");
-        employee.setCreatedAt(OffsetDateTime.now());
-        employee.setUpdatedAt(OffsetDateTime.now());
-        employeeRepository.insert(employee);
-
-        // 生成 JWT（含 name / storeName）
-        var details = UserDetailsImpl.builder()
-                .userId(user.getId())
-                .email(user.getEmail())
-                .password(user.getPasswordHash())
-                .storeId(store.getId())
-                .employeeId(employee.getId())
-                .role("owner")
-                .roleLabel("owner")
-                .build();
-
-        String token = jwtUtil.generateToken(details, Map.of(
-                "storeId", store.getId(),
-                "employeeId", employee.getId(),
-                "role", "owner",
-                "name", req.getName(),
-                "storeName", storeName
-        ));
-
-        return new RegisterResponse(
-                token, user.getId(), employee.getId(),
-                store.getId(), "owner", "老板", storeName, req.getName());
     }
 
     private static String roleLabel(String role) {

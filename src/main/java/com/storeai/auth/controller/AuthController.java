@@ -2,8 +2,9 @@ package com.storeai.auth.controller;
 
 import com.storeai.auth.dto.LoginRequest;
 import com.storeai.auth.dto.LoginResponse;
-import com.storeai.auth.dto.RegisterRequest;
-import com.storeai.auth.dto.RegisterResponse;
+import com.storeai.auth.dto.SendCodeRequest;
+import com.storeai.auth.dto.SendCodeResponse;
+import com.storeai.auth.dto.PhoneLoginRequest;
 import com.storeai.auth.service.AuthService;
 import com.storeai.auth.entity.Employee;
 import com.storeai.auth.entity.Store;
@@ -46,6 +47,18 @@ public class AuthController {
         return ApiResponse.ok(authService.login(req));
     }
 
+    /** 发送短信验证码（手机号登录 / 找回密码）。开发期 mock 模式会在响应回传 devCode。 */
+    @PostMapping("/send-code")
+    public ApiResponse<SendCodeResponse> sendCode(@Valid @RequestBody SendCodeRequest req) {
+        return ApiResponse.ok(authService.sendCode(req));
+    }
+
+    /** 手机号 + 验证码登录。账号必须由超级管理员预录入，不开放自助注册。 */
+    @PostMapping("/login-by-phone")
+    public ApiResponse<LoginResponse> loginByPhone(@Valid @RequestBody PhoneLoginRequest req) {
+        return ApiResponse.ok(authService.loginByPhone(req));
+    }
+
     /** 仅 local profile 开启的免密角色体验入口，见 application-local.yml。 */
     @GetMapping("/local-preview-accounts")
     public ApiResponse<List<AuthService.LocalPreviewAccount>> localPreviewAccounts(HttpServletRequest request) {
@@ -56,11 +69,6 @@ public class AuthController {
     @PostMapping("/local-preview-login")
     public ApiResponse<LoginResponse> localPreviewLogin(@RequestBody LocalPreviewLoginRequest req, HttpServletRequest request) {
         return ApiResponse.ok(authService.localPreviewLogin(req.employeeId(), request));
-    }
-
-    @PostMapping("/register")
-    public ApiResponse<RegisterResponse> register(@Valid @RequestBody RegisterRequest req) {
-        return ApiResponse.ok(authService.register(req));
     }
 
     /**

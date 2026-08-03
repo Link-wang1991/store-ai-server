@@ -30,6 +30,7 @@ public class DataInitializer implements CommandLineRunner {
         // 补所有缺失列（老 Supabase 表结构不一致）
         String[][] cols = {
             {"users", "password_hash", "VARCHAR(255)"},
+            {"users", "phone", "VARCHAR(30)"},
             {"employees", "data_scope", "VARCHAR(20) DEFAULT 'self'"},
             {"employees", "phone", "VARCHAR(30)"},
             {"knowledge_chunks", "seq", "INT DEFAULT 0"},
@@ -155,14 +156,19 @@ public class DataInitializer implements CommandLineRunner {
         for (String[] c : cols) addColumnIfMissing(c[0], c[1], c[2]);
         safeExec("ALTER TABLE chat_messages MODIFY COLUMN user_message TEXT NULL");
         safeExec("ALTER TABLE chat_messages MODIFY COLUMN ai_response TEXT NULL");
-        // 放开 employees.role CHECK 约束，允许 admin 角色
+        // 放开 employees.role CHECK 约束，允许 admin / super_admin 等角色
         safeExec("ALTER TABLE employees DROP CHECK employees_chk_1");
         safeExec("ALTER TABLE employees DROP CHECK employees_chk_2");
+        // 手机号作为登录唯一标识，补唯一索引（已有平台超管账号不受影响）
+        safeExec("ALTER TABLE users ADD UNIQUE KEY uk_users_phone (phone)");
 
         if (!seedDemoDataOnStart) {
             log.info("演示数据初始化已关闭：仅完成数据库兼容检查，不写入或覆盖演示数据");
             return;
         }
+
+        // 平台超级管理员（用于创建/管理门店）。仅在 dev 演示环境自动初始化。
+        seedSuperAdmin(passwordEncoder.encode("demo123456"));
 
         // 设置演示密码（仅显式演示环境）
         String hash = passwordEncoder.encode("demo123456");
@@ -171,6 +177,44 @@ public class DataInitializer implements CommandLineRunner {
 
         // 初始化演示门店和全员角色账号
         seedDemoData(hash);
+    }
+
+    // ============================================================
+    // 平台超级管理员
+    // ============================================================
+    private void seedSuperAdmin(String passwordHash) {
+        // 平台占位门店（不绑定真实门店业务，仅用于满足 employees.store_id NOT NULL）
+        String platformStoreId;
+        try {
+            platformStoreId = jdbc.queryForObject(
+                "SELECT id FROM stores WHERE id = 'platform'", String.class);
+        } catch (Exception e) {
+            platformStoreId = "platform";
+            jdbc.update("INSERT INTO stores (id, name, owner_id, created_at, updated_at) VALUES (?, '平台运营', NULL, NOW(), NOW())",
+                platformStoreId);
+            log.info("创建平台占位门店: id=platform");
+        }
+
+        final String phone = "13800000000";
+        final String email = "superadmin@platform.local";
+
+        // 已存在则跳过
+        Integer exists = jdbc.queryForObject(
+            "SELECT COUNT(*) FROM users WHERE phone = ? OR email = ?", Integer.class, phone, email);
+        if (exists != null && exists > 0) {
+            log.info("平台超级管理员已存在，跳过初始化");
+            return;
+        }
+
+        String userId = uuid();
+        jdbc.update("INSERT INTO users (id, email, phone, name, password_hash, created_at) VALUES (?, ?, ?, '超级管理员', ?, NOW())",
+            userId, email, phone, passwordHash);
+
+        String empId = uuid();
+        jdbc.update("INSERT INTO employees (id, store_id, user_id, name, role, status, data_scope, created_at, updated_at) VALUES (?, ?, ?, '超级管理员', 'super_admin', 'active', 'store', NOW(), NOW())",
+            empId, platformStoreId, userId);
+
+        log.info("平台超级管理员已初始化: phone={}, 密码=demo123456", phone);
     }
 
     // ============================================================

@@ -44,4 +44,9 @@ public class CurrentUser {
     public boolean isOwner() {
         return "owner".equals(role());
     }
+
+    /** 平台超级管理员（不绑定具体门店，可跨门店管理）。 */
+    public boolean isSuperAdmin() {
+        return "super_admin".equals(role());
+    }
 }

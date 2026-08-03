@@ -14,6 +14,7 @@ public class User {
     private String id;
     private String authUserId;  // 关联 Supabase Auth uuid
     private String email;
+    private String phone;       // 登录唯一标识（手机号）
     private String name;
     private String passwordHash;
     private OffsetDateTime createdAt;
