@@ -161,28 +161,26 @@ public class DataInitializer implements CommandLineRunner {
         safeExec("ALTER TABLE employees DROP CHECK employees_chk_2");
         // 手机号作为登录唯一标识，补唯一索引（已有平台超管账号不受影响）
         safeExec("ALTER TABLE users ADD UNIQUE KEY uk_users_phone (phone)");
+        // 邮箱登录已废弃，手机号是唯一登录标识；email 改为可空
+        safeExec("ALTER TABLE users MODIFY email VARCHAR(255) NULL");
 
         if (!seedDemoDataOnStart) {
             log.info("演示数据初始化已关闭：仅完成数据库兼容检查，不写入或覆盖演示数据");
             return;
         }
 
-        // 平台超级管理员（用于创建/管理门店）。仅在 dev 演示环境自动初始化。
-        seedSuperAdmin(passwordEncoder.encode("demo123456"));
+        // 平台超级管理员（手机号+密码，用于创建/管理门店）。仅在 dev 演示环境自动初始化。
+        seedSuperAdmin();
 
-        // 设置演示密码（仅显式演示环境）
+        // 初始化演示门店和全员角色账号（手机号+密码，不再使用邮箱登录）
         String hash = passwordEncoder.encode("demo123456");
-        int updated = jdbc.update("UPDATE users SET password_hash = ? WHERE email LIKE '%@demo.com' OR email LIKE '%@store.ai'", hash);
-        log.info("密码更新完成: 更新{}个账号", updated);
-
-        // 初始化演示门店和全员角色账号
         seedDemoData(hash);
     }
 
     // ============================================================
-    // 平台超级管理员
+    // 平台超级管理员（手机号+密码，无邮箱登录）
     // ============================================================
-    private void seedSuperAdmin(String passwordHash) {
+    private void seedSuperAdmin() {
         // 平台占位门店（不绑定真实门店业务，仅用于满足 employees.store_id NOT NULL）
         String platformStoreId;
         try {
@@ -195,56 +193,58 @@ public class DataInitializer implements CommandLineRunner {
             log.info("创建平台占位门店: id=platform");
         }
 
-        final String phone = "13800000000";
-        final String email = "superadmin@platform.local";
-
-        // 已存在则跳过
-        Integer exists = jdbc.queryForObject(
-            "SELECT COUNT(*) FROM users WHERE phone = ? OR email = ?", Integer.class, phone, email);
-        if (exists != null && exists > 0) {
-            log.info("平台超级管理员已存在，跳过初始化");
-            return;
+        // 两个指定的平台超级管理员（手机号+密码）
+        String[][] supers = {
+            {"18672348530", "wk20260801"},
+            {"18627170706", "zz20260801"},
+        };
+        for (String[] s : supers) {
+            final String phone = s[0];
+            final String rawPwd = s[1];
+            // 已存在则跳过
+            Integer exists = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM users WHERE phone = ?", Integer.class, phone);
+            if (exists != null && exists > 0) {
+                log.info("平台超级管理员已存在，跳过初始化: {}", phone);
+                continue;
+            }
+            String userId = uuid();
+            jdbc.update("INSERT INTO users (id, email, phone, name, password_hash, created_at) VALUES (?, NULL, ?, '超级管理员', ?, NOW())",
+                userId, phone, passwordEncoder.encode(rawPwd));
+            jdbc.update("INSERT INTO employees (id, store_id, user_id, name, role, status, data_scope, created_at, updated_at) VALUES (?, ?, ?, '超级管理员', 'super_admin', 'active', 'store', NOW(), NOW())",
+                uuid(), platformStoreId, userId);
+            log.info("平台超级管理员已初始化: phone={}, 密码={}", phone, rawPwd);
         }
-
-        String userId = uuid();
-        jdbc.update("INSERT INTO users (id, email, phone, name, password_hash, created_at) VALUES (?, ?, ?, '超级管理员', ?, NOW())",
-            userId, email, phone, passwordHash);
-
-        String empId = uuid();
-        jdbc.update("INSERT INTO employees (id, store_id, user_id, name, role, status, data_scope, created_at, updated_at) VALUES (?, ?, ?, '超级管理员', 'super_admin', 'active', 'store', NOW(), NOW())",
-            empId, platformStoreId, userId);
-
-        log.info("平台超级管理员已初始化: phone={}, 密码=demo123456", phone);
     }
 
     // ============================================================
     // 演示数据
     // ============================================================
     // 门店：尚美美容旗舰店
-    // 账号（密码均为 demo123456）：
-    //   owner@demo.com     王总    - owner    (老板)
-    //   admin@demo.com            张经理   - admin    (管理员)
-    //   manager@demo.com         李店长   - manager  (店长)
-    //   staff@demo.com           赵美容师  - operator (店员)
+    // 账号（均为手机号+密码，密码 demo123456，无邮箱登录）：
+    //   13700000001 王总    - owner    (老板)
+    //   13700000002 张经理  - admin    (管理员)
+    //   13700000003 李店长  - manager  (店长)
+    //   13700000004 赵美容师- operator (店员)
     // ============================================================
 
-    record DemoUser(String email, String name, String role, String roleLabel) {}
+    record DemoUser(String phone, String name, String role, String roleLabel) {}
     record DemoStore(String id, String name) {}
 
     private void seedDemoData(String passwordHash) {
         // --- 1. 查找或创建演示门店 ---
         String storeId = findOrCreateStore();
 
-        // --- 2. 演示员工账号 ---
+        // --- 2. 演示员工账号（手机号+密码，无邮箱登录）---
         DemoUser[] demos = {
-            new DemoUser("owner@demo.com",   "王总",   "owner",    "老板"),
-            new DemoUser("admin@demo.com", "张经理",  "admin",    "管理员"),
-            new DemoUser("manager@demo.com",  "李店长",  "manager",  "店长"),
-            new DemoUser("staff@demo.com",    "赵美容师","operator", "店员"),
+            new DemoUser("13700000001", "王总",    "owner",    "老板"),
+            new DemoUser("13700000002", "张经理",  "admin",    "管理员"),
+            new DemoUser("13700000003", "李店长",  "manager",  "店长"),
+            new DemoUser("13700000004", "赵美容师","operator", "店员"),
         };
 
         for (DemoUser d : demos) {
-            String userId = findOrCreateUser(d.email, d.name, passwordHash);
+            String userId = findOrCreateUserByPhone(d.phone, d.name, passwordHash);
             findOrCreateEmployee(storeId, userId, d.name, d.role);
         }
 
@@ -355,20 +355,20 @@ public class DataInitializer implements CommandLineRunner {
         return id;
     }
 
-    /** 按邮箱查找用户，不存在则创建 */
-    private String findOrCreateUser(String email, String name, String passwordHash) {
+    /** 按手机号查找用户，不存在则创建（邮箱留空，手机号作为唯一登录标识） */
+    private String findOrCreateUserByPhone(String phone, String name, String passwordHash) {
         try {
-            String id = jdbc.queryForObject("SELECT id FROM users WHERE email = ?", String.class, email);
+            String id = jdbc.queryForObject("SELECT id FROM users WHERE phone = ?", String.class, phone);
             // 更新名称和密码（保证演示账号始终可用）
-            jdbc.update("UPDATE users SET name = ?, password_hash = ? WHERE id = ?", name, passwordHash, id);
+            jdbc.update("UPDATE users SET name = ?, password_hash = ?, email = NULL WHERE id = ?", name, passwordHash, id);
             return id;
         } catch (Exception e) {
             // 不存在，创建
         }
         String id = uuid();
-        jdbc.update("INSERT INTO users (id, email, name, password_hash, created_at) VALUES (?, ?, ?, ?, NOW())",
-            id, email, name, passwordHash);
-        log.info("创建演示用户: email={}, name={}", email, name);
+        jdbc.update("INSERT INTO users (id, email, phone, name, password_hash, created_at) VALUES (?, NULL, ?, ?, ?, NOW())",
+            id, phone, name, passwordHash);
+        log.info("创建演示用户: phone={}, name={}", phone, name);
         return id;
     }
 
