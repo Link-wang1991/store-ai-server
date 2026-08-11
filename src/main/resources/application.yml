@@ -77,3 +77,8 @@ springdoc:
     path: /api-docs
   swagger-ui:
     path: /swagger-ui.html
+
+# 微信小程序登录（一键登录 + 绑定手机号）。生产环境通过环境变量 WX_APPID / WX_SECRET 注入，切勿提交真实 secret。
+wx:
+  appid: ${WX_APPID:wx6ade085c48e2a736}
+  secret: ${WX_SECRET:}

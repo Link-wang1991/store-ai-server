@@ -17,5 +17,6 @@ public class User {
     private String phone;       // 登录唯一标识（手机号）
     private String name;
     private String passwordHash;
+    private String wxOpenid;   // 微信 openid（绑定后用于一键登录）
     private OffsetDateTime createdAt;
 }

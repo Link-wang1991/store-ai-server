@@ -5,6 +5,9 @@ import com.storeai.auth.dto.LoginResponse;
 import com.storeai.auth.dto.SendCodeRequest;
 import com.storeai.auth.dto.SendCodeResponse;
 import com.storeai.auth.dto.PhoneLoginRequest;
+import com.storeai.auth.dto.WxBindRequest;
+import com.storeai.auth.dto.WxLoginRequest;
+import com.storeai.auth.dto.WxLoginResult;
 import com.storeai.auth.service.AuthService;
 import com.storeai.auth.entity.Employee;
 import com.storeai.auth.entity.Store;
@@ -57,6 +60,18 @@ public class AuthController {
     @PostMapping("/login-by-phone")
     public ApiResponse<LoginResponse> loginByPhone(@Valid @RequestBody PhoneLoginRequest req) {
         return ApiResponse.ok(authService.loginByPhone(req));
+    }
+
+    /** 微信一键登录：code → openid → 已绑定直接返回令牌；未绑定返回 needBind。 */
+    @PostMapping("/wx-login")
+    public ApiResponse<WxLoginResult> wxLogin(@Valid @RequestBody WxLoginRequest req) {
+        return ApiResponse.ok(authService.wxLogin(req));
+    }
+
+    /** 微信登录后绑定手机号：code + 手机号 + 验证码 → 绑定 openid 并返回令牌。 */
+    @PostMapping("/wx-bind")
+    public ApiResponse<LoginResponse> wxBind(@Valid @RequestBody WxBindRequest req) {
+        return ApiResponse.ok(authService.wxBindPhone(req));
     }
 
     /** 仅 local profile 开启的免密角色体验入口，见 application-local.yml。 */

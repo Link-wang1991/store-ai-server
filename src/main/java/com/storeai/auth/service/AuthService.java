@@ -6,6 +6,9 @@ import com.storeai.auth.dto.LoginResponse;
 import com.storeai.auth.dto.SendCodeRequest;
 import com.storeai.auth.dto.SendCodeResponse;
 import com.storeai.auth.dto.PhoneLoginRequest;
+import com.storeai.auth.dto.WxBindRequest;
+import com.storeai.auth.dto.WxLoginRequest;
+import com.storeai.auth.dto.WxLoginResult;
 import com.storeai.auth.entity.Employee;
 import com.storeai.auth.entity.Store;
 import com.storeai.auth.entity.User;
@@ -70,6 +73,11 @@ public class AuthService {
     /** mock 模式下 send-code 会在响应里回传验证码，方便联调；生产/真实短信不下发。 */
     @Value("${app.sms.mode:mock}")
     private String smsMode;
+
+    @Value("${wx.appid:}")
+    private String wxAppid;
+    @Value("${wx.secret:}")
+    private String wxSecret;
 
     public LoginResponse login(LoginRequest req) {
         String phone = req.getPhone() == null ? null : req.getPhone().trim();
@@ -334,6 +342,70 @@ public class AuthService {
 
     private static String entryFor(String role) {
         return "owner".equals(role) || "manager".equals(role) || "admin".equals(role) ? "/admin" : "/home";
+    }
+
+    // ============================================================
+    // 微信一键登录 / 绑定
+    // ============================================================
+    public WxLoginResult wxLogin(WxLoginRequest req) {
+        String openid = code2Session(req.code());
+        User user = userRepository.selectOne(new LambdaQueryWrapper<User>().eq(User::getWxOpenid, openid));
+        if (user == null) {
+            return new WxLoginResult(true, null, null, null, null, null, null, null, null);
+        }
+        LoginResponse lr = loginResponseFor(user);
+        return new WxLoginResult(false, lr.getToken(), lr.getUserId(), lr.getEmployeeId(),
+                lr.getStoreId(), lr.getRole(), lr.getRoleLabel(), lr.getStoreName(), lr.getName());
+    }
+
+    @Transactional
+    public LoginResponse wxBindPhone(WxBindRequest req) {
+        String openid = code2Session(req.code());
+        verifyCode(req.phone() == null ? "" : req.phone().trim(), "login",
+                req.smsCode() == null ? "" : req.smsCode().trim());
+        User user = userRepository.selectOne(new LambdaQueryWrapper<User>().eq(User::getPhone, req.phone().trim()));
+        if (user == null) {
+            throw BizException.badRequest("该手机号尚未开通账号，请联系门店管理员");
+        }
+        if (user.getWxOpenid() == null || user.getWxOpenid().isBlank()) {
+            user.setWxOpenid(openid);
+            userRepository.updateById(user);
+        }
+        return loginResponseFor(user);
+    }
+
+    /** 用 wx.login 的 code 换取微信 openid（code2session）。 */
+    private String code2Session(String code) {
+        if (code == null || code.isBlank()) throw BizException.badRequest("微信登录码为空");
+        if (wxAppid == null || wxAppid.isBlank() || wxSecret == null || wxSecret.isBlank()) {
+            throw BizException.badRequest("微信登录未配置 appid/secret");
+        }
+        String url = String.format(
+                "https://api.weixin.qq.com/sns/jscode2session?appid=%s&secret=%s&js_code=%s&grant_type=authorization_code",
+                wxAppid, wxSecret, code);
+        try {
+            java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
+                    .uri(java.net.URI.create(url))
+                    .timeout(java.time.Duration.ofSeconds(10))
+                    .GET()
+                    .build();
+            java.net.http.HttpResponse<String> resp = java.net.http.HttpClient.newHttpClient()
+                    .send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+            com.fasterxml.jackson.databind.JsonNode node =
+                    new com.fasterxml.jackson.databind.ObjectMapper().readTree(resp.body());
+            if (node.has("errcode") && node.get("errcode").asInt() != 0) {
+                throw BizException.badRequest("微信登录失败: " + node.get("errmsg").asText());
+            }
+            String openid = node.get("openid").asText();
+            if (openid == null || openid.isBlank()) {
+                throw BizException.badRequest("微信登录未返回 openid");
+            }
+            return openid;
+        } catch (BizException e) {
+            throw e;
+        } catch (Exception e) {
+            throw BizException.badRequest("微信登录校验失败: " + e.getMessage());
+        }
     }
 
     public record LocalPreviewAccount(String employeeId, String name, String role, String roleLabel, String entry) {}
