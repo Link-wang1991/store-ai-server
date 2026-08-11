@@ -1,12 +1,4 @@
--- 未经完整量表评估的会谈不能自动显示为 60 分。
--- NULL 表示“未评估/评估不完整”，看板 AVG 会自然忽略该值。
-
-ALTER TABLE meetings
-    ALTER COLUMN quality_score DROP DEFAULT;
-
-ALTER TABLE meeting_analysis
-    ALTER COLUMN need_digging_score DROP DEFAULT,
-    ALTER COLUMN deal_advancing_score DROP DEFAULT,
-    ALTER COLUMN compliance_score DROP DEFAULT,
-    ALTER COLUMN service_score DROP DEFAULT,
-    ALTER COLUMN quality_score DROP DEFAULT;
+-- 历史版本：旧库曾为分数列设置 DEFAULT 60，需要清除（NULL 表示“未评估/评估不完整”，看板 AVG 自然忽略）。
+-- 全新库中这些列由 DataInitializer 以无默认值方式补加（见 DataInitializer.addColumnIfMissing），
+-- 不存在历史遗留默认值，因此本迁移为 no-op，避免全量迁移时因列不存在而失败（Unknown column 'quality_score'）。
+SELECT 1;

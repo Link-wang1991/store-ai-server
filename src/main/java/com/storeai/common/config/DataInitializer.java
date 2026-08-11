@@ -29,8 +29,10 @@ public class DataInitializer implements CommandLineRunner {
     public void run(String... args) {
         // 补所有缺失列（老 Supabase 表结构不一致）
         String[][] cols = {
+            {"users", "auth_user_id", "VARCHAR(64)"},
             {"users", "password_hash", "VARCHAR(255)"},
             {"users", "phone", "VARCHAR(30)"},
+            {"users", "wx_openid", "VARCHAR(64)"},
             {"employees", "data_scope", "VARCHAR(20) DEFAULT 'self'"},
             {"employees", "phone", "VARCHAR(30)"},
             {"knowledge_chunks", "seq", "INT DEFAULT 0"},
