@@ -288,7 +288,7 @@ public class MeetingController {
         if (file == null || file.isEmpty()) throw BizException.badRequest("没有录音文件");
         if (file.getSize() > MAX_AUDIO_BYTES) throw BizException.badRequest("录音文件超过 60MB 限制");
         try (InputStream in = file.getInputStream()) {
-            String ext = getExt(file.getOriginalFilename());
+            String ext = getExt(file.getOriginalFilename(), file.getContentType());
             String fileName = "meeting-" + id + "." + ext;
             String filePath;
 
@@ -426,11 +426,30 @@ public class MeetingController {
         return storageService.saveMeetingAudio(fileName, data, size);
     }
 
-    private String getExt(String name) {
-        if (name == null) return "webm";
-        int i = name.lastIndexOf('.');
-        String ext = i < 0 ? "webm" : name.substring(i + 1).toLowerCase();
-        return Set.of("webm", "mp4", "m4a", "aac", "mp3", "ogg").contains(ext) ? ext : "webm";
+    /**
+     * 由上传文件名推断录音扩展名。微信上传临时文件名常常不带或带错扩展名，
+     * 此时根据 Content-Type 兜底，避免默认成 webm（微信小程序 InnerAudioContext 不支持 webm，会导致能下载但无声）。
+     */
+    private String getExt(String name, String contentType) {
+        String ext = null;
+        if (name != null) {
+            int i = name.lastIndexOf('.');
+            String candidate = i < 0 ? null : name.substring(i + 1).toLowerCase();
+            if (candidate != null && Set.of("webm", "mp4", "m4a", "aac", "mp3", "ogg", "wav").contains(candidate)) {
+                ext = candidate;
+            }
+        }
+        if (ext == null && contentType != null) {
+            String ct = contentType.toLowerCase();
+            if (ct.contains("mpeg") || ct.contains("mp3")) ext = "mp3";
+            else if (ct.contains("mp4")) ext = "m4a";
+            else if (ct.contains("aac")) ext = "aac";
+            else if (ct.contains("wav")) ext = "wav";
+            else if (ct.contains("ogg")) ext = "ogg";
+            else if (ct.contains("webm")) ext = "webm";
+        }
+        // 小程序录音 mp3 是默认最稳的，实在无法判断时优先 mp3 而非 webm
+        return ext == null ? "mp3" : ext;
     }
 
     public record CreateMeetingRequest(String customerId, String customerName, String scene) {}
@@ -489,11 +508,11 @@ public class MeetingController {
     }
 
     private String getExtFromFile(String name) {
-        return "." + getExt(name);
+        return "." + getExt(name, null);
     }
 
     private String audioMediaType(String filename) {
-        return switch (getExt(filename)) {
+        return switch (getExt(filename, null)) {
             case "mp3" -> "audio/mpeg";
             case "m4a", "mp4" -> "audio/mp4";
             case "aac" -> "audio/aac";
