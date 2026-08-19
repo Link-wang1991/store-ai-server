@@ -10,7 +10,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -56,6 +58,18 @@ public class CustomerService {
         return c;
     }
 
+    /** 客户的记忆项列表（含 id/status，供档案页确认/修正/拒绝） */
+    public List<Map<String, Object>> getMemories(String customerId) {
+        Customer c = getById(customerId);
+        return jdbc.queryForList("""
+            SELECT id, `key`, value, confidence, status, source_type, source_id,
+                   created_at, updated_at, confirmed_at
+            FROM memory_items
+            WHERE customer_id = ? AND store_id = ?
+            ORDER BY created_at DESC
+            """, customerId, cur.storeId());
+    }
+
     /** 更新客户基础信息 */
     @Transactional
     public Customer update(String id, Customer update) {
@@ -89,6 +103,81 @@ public class CustomerService {
         Customer c = getById(id);
         requireOwnerForWrite(c);
         customerRepo.deleteById(id);
+    }
+
+    /**
+     * 客户合并：把 sourceId 客户的会谈、任务、记忆、互动时间线迁移到 targetId，
+     * 补充目标客户缺失的基础信息，然后删除源客户。仅管理角色可操作。
+     * 用于清理"新客户 xx"等临时占位档案，避免客户画像、AI 记忆和任务归属分散。
+     */
+    @Transactional
+    public Map<String, Object> merge(String targetId, String sourceId) {
+        if (!cur.isAdmin()) throw BizException.forbidden("只有店长/老板可以合并客户");
+        if (targetId == null || targetId.isBlank() || sourceId == null || sourceId.isBlank()) {
+            throw BizException.badRequest("请选择要保留的客户和待合并的客户");
+        }
+        if (targetId.equals(sourceId)) throw BizException.badRequest("不能合并到同一客户");
+
+        Customer target = customerRepo.selectById(targetId);
+        Customer source = customerRepo.selectById(sourceId);
+        if (target == null || source == null
+                || !cur.storeId().equals(target.getStoreId())
+                || !cur.storeId().equals(source.getStoreId())) {
+            throw BizException.notFound("客户");
+        }
+
+        // 1. 迁移关联数据：会谈、任务、互动时间线、记忆
+        jdbc.update("UPDATE meetings SET customer_id = ? WHERE customer_id = ? AND store_id = ?",
+            targetId, sourceId, cur.storeId());
+        jdbc.update("UPDATE tasks SET customer_id = ? WHERE customer_id = ? AND store_id = ?",
+            targetId, sourceId, cur.storeId());
+        jdbc.update("UPDATE interactions SET customer_id = ? WHERE customer_id = ? AND store_id = ?",
+            targetId, sourceId, cur.storeId());
+        jdbc.update("UPDATE memory_items SET customer_id = ? WHERE customer_id = ? AND store_id = ?",
+            targetId, sourceId, cur.storeId());
+
+        // 2. 源客户改名时同步过 meetings.customer_name，迁移后统一为目标客户名
+        jdbc.update("UPDATE meetings SET customer_name = ? WHERE customer_id = ? AND store_id = ?",
+            target.getName(), targetId, cur.storeId());
+
+        // 3. 补充目标客户缺失的基础信息（源客户有而目标没有的字段）
+        if ((target.getPhone() == null || target.getPhone().isBlank()) && source.getPhone() != null) {
+            target.setPhone(source.getPhone());
+        }
+        if ((target.getStage() == null || target.getStage().isBlank()) && source.getStage() != null) {
+            target.setStage(source.getStage());
+        }
+        if ((target.getConcerns() == null || target.getConcerns().isBlank()) && source.getConcerns() != null) {
+            target.setConcerns(source.getConcerns());
+        }
+        if ((target.getAiSuggestion() == null || target.getAiSuggestion().isBlank()) && source.getAiSuggestion() != null) {
+            target.setAiSuggestion(source.getAiSuggestion());
+        }
+        if (target.getTotalVisits() == null || target.getTotalVisits() == 0) {
+            target.setTotalVisits(source.getTotalVisits());
+        }
+        if (target.getLastVisitAt() == null && source.getLastVisitAt() != null) {
+            target.setLastVisitAt(source.getLastVisitAt());
+        }
+        if (target.getLastActiveAt() == null && source.getLastActiveAt() != null) {
+            target.setLastActiveAt(source.getLastActiveAt());
+        }
+        target.setUpdatedAt(OffsetDateTime.now());
+        customerRepo.updateById(target);
+
+        // 4. 写时间线
+        customerTimelineService.addInteraction(targetId, "customer_merge",
+            "合并客户：" + source.getName() + " 的资料已并入");
+
+        // 5. 删除源客户
+        customerRepo.deleteById(sourceId);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("customer_id", targetId);
+        result.put("customer_name", target.getName());
+        result.put("merged_from", source.getName());
+        result.put("message", "已合并客户");
+        return result;
     }
 
     private void requireOwnerForWrite(Customer customer) {

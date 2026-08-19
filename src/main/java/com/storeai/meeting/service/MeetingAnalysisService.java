@@ -43,6 +43,13 @@ public class MeetingAnalysisService {
     @Value("${ai.qwen.api-key:}")
     private String dashscopeKey;
 
+    /**
+     * AI 会谈分析的最大尝试次数。默认 3 次；为临时关闭自动重试（避免反复调用模型消耗 token）
+     * 可配置为 1，分析失败一次即进入用户可见的失败态，不再自动重试。
+     */
+    @Value("${meeting.analysis-max-attempts:3}")
+    private int maxAnalysisAttempts;
+
     /** 单段文本超过该字符数则走分段分析（约 9000 中文字） */
     private static final int SINGLE_LIMIT = 9000;
     /** 每个分段的最大字符数（按 segment 边界切，不截断句子） */
@@ -280,8 +287,11 @@ public class MeetingAnalysisService {
         // 保存转写
         String storeId = (String) row.get("store_id");
         jdbc.update("DELETE FROM meeting_transcripts WHERE meeting_id = ?", id);
+        int validChars = 0;
         for (int i = 0; i < segments.size(); i++) {
             var seg = segments.get(i);
+            String text = String.valueOf(seg.get("text"));
+            validChars += text.replaceAll("\\s", "").length();
             jdbc.update(
                 "INSERT INTO meeting_transcripts (id, meeting_id, store_id, speaker, content, original_content, start_time, end_time, seq, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 UUID.randomUUID().toString().replace("-", ""),
@@ -292,6 +302,7 @@ public class MeetingAnalysisService {
                 OffsetDateTime.now().toString(), OffsetDateTime.now().toString()
             );
         }
+        log.info("转写结果已落库: meeting={}, 句数={}, 有效字数={}", id, segments.size(), validChars);
 
         jdbc.update("""
             UPDATE meetings
@@ -332,6 +343,7 @@ public class MeetingAnalysisService {
                 asr_error_code = ?, fail_reason = ?, updated_at = NOW()
             WHERE id = ?
             """, errorCode, reason, meetingId);
+        log.warn("转写结果失败: meeting={}, errorCode={}, reason={}", meetingId, errorCode, reason);
         return Map.of("status", "failed", "error", reason);
     }
 
@@ -367,16 +379,16 @@ public class MeetingAnalysisService {
         Integer current = jdbc.queryForObject(
             "SELECT COALESCE(analysis_attempts, 0) FROM meetings WHERE id = ?", Integer.class, meetingId);
         int attempts = (current == null ? 0 : current) + 1;
-        if (attempts >= 3) {
-            String reason = "AI 分析连续失败 3 次，逐字稿已保留。请检查模型服务后点击“重新分析”。";
+        if (attempts >= maxAnalysisAttempts) {
+            String reason = "AI 分析连续失败 " + maxAnalysisAttempts + " 次，逐字稿已保留。请检查模型服务后点击“重新分析”。";
             jdbc.update("""
                 UPDATE meetings
                 SET status = 'failed', analysis_status = 'failed', analysis_attempts = ?,
                     analysis_retry_at = NULL, analysis_error_code = ?, fail_reason = ?, updated_at = NOW()
                 WHERE id = ? AND status = 'analyzing'
                 """, attempts, errorCode, reason, meetingId);
-            log.warn("会谈分析达到重试上限: meeting={}, code={}, error={}", meetingId, errorCode,
-                error == null ? "" : error.getMessage());
+            log.warn("分析结果失败(达到重试上限): meeting={}, errorCode={}, reason={}, error={}",
+                meetingId, errorCode, reason, error == null ? "" : error.getMessage());
             return Map.of("status", "failed", "error", reason);
         }
 
@@ -385,7 +397,7 @@ public class MeetingAnalysisService {
             case 2 -> 90;
             default -> 180;
         };
-        String detail = userMessage + "（第 " + attempts + "/3 次，约 " + delaySeconds + " 秒后重试）";
+        String detail = userMessage + "（第 " + attempts + "/" + maxAnalysisAttempts + " 次，约 " + delaySeconds + " 秒后重试）";
         jdbc.update("""
             UPDATE meetings
             SET status = 'analyzing', analysis_status = 'pending', analysis_attempts = ?,
@@ -491,6 +503,19 @@ public class MeetingAnalysisService {
             "SELECT * FROM meeting_transcripts WHERE meeting_id = ? AND store_id = ? ORDER BY seq ASC", id, storeId);
         if (transcripts.isEmpty()) {
             throw new BizException("没有转写内容可分析");
+        }
+
+        // 有效证据门槛：即使存在转写记录行，也要校验"有效字数 + 有效轮次 + 有效说话时长"，
+        // 避免语音识别只产生空片段/极短片段时，AI 仍基于极少证据给出客户需求、顾虑与行动建议。
+        String insuffEvidence = insufficientEvidenceReason(transcripts);
+        if (insuffEvidence != null) {
+            // 证据不足不是"录音坏了"，不应无限重试。直接落库失败态并返回，供员工补录/修订后重试。
+            jdbc.update("""
+                UPDATE meetings
+                SET status = 'failed', analysis_status = 'failed', fail_reason = ?, updated_at = NOW()
+                WHERE id = ? AND status = 'analyzing'
+                """, insuffEvidence, id);
+            return Map.of("status", "failed", "error", insuffEvidence);
         }
 
         // ③ 说话人角色映射：speaker_x → 员工 / 客户
@@ -623,6 +648,18 @@ public class MeetingAnalysisService {
             );
             log.info("会谈报告已创建: meeting={}, analysis={}", id, analysisId);
         }
+
+        // 分析结果日志：质量评分 + 各维度 + 合规命中 + 知识/方法论命中，便于排查分析质量与 token 使用
+        log.info("会谈分析结果: meeting={}, analysis={}, 质量评分={}, 需求挖掘={}, 成交推进={}, 合规={}, 服务体验={}, " +
+                "合规命中={}, 需店长介入={}, 门店资料命中={}, 方法论命中={}, 是否重分析={}",
+            id, analysisId, qualityScore,
+            nullableScore(analysis.get("need_digging_score")),
+            nullableScore(analysis.get("deal_advancing_score")),
+            nullableScore(analysis.get("compliance_score")),
+            nullableScore(analysis.get("service_score")),
+            analysis.get("compliance_hits"),
+            toIntFlag(analysis.get("need_manager_involved")),
+            knowledge.size(), methodology.size(), reprocessing);
 
         jdbc.update("""
             UPDATE meetings
@@ -912,6 +949,50 @@ public class MeetingAnalysisService {
             if (c != null && !c.isBlank()) sb.append(c).append("\n");
         }
         return sb.toString();
+    }
+
+    /**
+     * 校验转写是否具备可分析的最低证据。返回 null 表示证据充分；
+     * 否则返回给用户可见的失败原因。评估维度：有效字数、有效说话轮次、有效说话时长。
+     */
+    private String insufficientEvidenceReason(List<Map<String, Object>> transcripts) {
+        int validChars = 0;   // 有效转写字数（去除空白）
+        int validTurns = 0;   // 有效说话轮次
+        double totalSec = 0D; // 有效说话时长（来自 start_time/end_time，缺失则用字数估算）
+        boolean hasTime = false;
+
+        for (var t : transcripts) {
+            String content = safeStr(t.get("content"));
+            if (content.isBlank()) continue;
+            int chars = content.replaceAll("\\s", "").length();
+            validChars += chars;
+            validTurns++;
+            Object st = t.get("start_time");
+            Object et = t.get("end_time");
+            if (st instanceof Number && et instanceof Number) {
+                double s = ((Number) st).doubleValue();
+                double e = ((Number) et).doubleValue();
+                if (e > s) {
+                    totalSec += (e - s);
+                    hasTime = true;
+                }
+            }
+        }
+
+        // 说话轮次过低（几乎只有一句无效内容）
+        if (validTurns == 0) {
+            return "未识别到有效语音（录音可能太短、太嘈杂或无人说话），无法可靠分析。请补录或修订转写后重试。";
+        }
+        // 有效字数过少，不足支撑客户事实、评分或任务结论
+        if (validChars < 20) {
+            return "有效转写内容过少（仅 " + validChars + " 字），证据不足，无法可靠分析。请补录或修订转写后重试。";
+        }
+        // 有效说话时长过短（能拿到时间戳时按时间戳算；否则按字数估算，约每字 0.28 秒）
+        double effectiveSec = hasTime ? totalSec : validChars * 0.28D;
+        if (effectiveSec < 10D) {
+            return "有效说话时长过短（约 " + String.format("%.0f", effectiveSec) + " 秒），证据不足，无法可靠分析。请补录或修订转写后重试。";
+        }
+        return null;
     }
 
     /** 优先只取员工/店长发言进行合规词表扫描，避免把客户提问误记为门店话术。 */

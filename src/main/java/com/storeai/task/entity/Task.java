@@ -34,6 +34,8 @@ public class Task {
     private String resultVerifiedBy;
     private OffsetDateTime nextFollowAt;
     private Boolean requiresResultVerification;
+    /** 是否有证据附件（V22 新增，默认 0）。 */
+    private Boolean hasAttachments;
     /** 自动生成任务的来源，例如 meeting_analysis / manual_meeting_candidate。 */
     private String sourceType;
     /** 来源分析、候选或其它业务记录 ID。 */

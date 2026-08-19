@@ -67,6 +67,47 @@ public class MemoryConfirmationService {
         return Map.of("analysis_id", analysisId, "key", key, "confirmed", confirmed);
     }
 
+    /**
+     * 按客户 + 记忆项直接确认/修正（客户档案页直连，不依赖确认任务）。
+     * 适用于员工在客户详情看到待确认记忆项时直接处理。
+     */
+    public Map<String, Object> confirmMemoryItem(String customerId, String memoryId,
+                                                  boolean confirmed, String correctedValue) {
+        Map<String, Object> item;
+        try {
+            item = jdbc.queryForMap(
+                "SELECT * FROM memory_items WHERE id = ? AND customer_id = ? AND store_id = ?",
+                memoryId, customerId, cur.storeId());
+        } catch (Exception e) {
+            throw BizException.notFound("记忆项");
+        }
+        String key = (String) item.get("key");
+
+        if (correctedValue != null && !correctedValue.isBlank()) {
+            jdbc.update(
+                "UPDATE memory_items SET value = ?, status = 'confirmed', confidence = 'high', " +
+                "confirmed_by = ?, confirmed_at = ?, updated_at = ? WHERE id = ? AND store_id = ?",
+                correctedValue, cur.employeeId(), OffsetDateTime.now().toString(),
+                OffsetDateTime.now().toString(), memoryId, cur.storeId());
+            updateCustomerField(customerId, key, correctedValue);
+        } else if (confirmed) {
+            jdbc.update(
+                "UPDATE memory_items SET status = 'confirmed', confidence = 'high', confirmed_by = ?, " +
+                "confirmed_at = ?, updated_at = ? WHERE id = ? AND store_id = ?",
+                cur.employeeId(), OffsetDateTime.now().toString(), OffsetDateTime.now().toString(),
+                memoryId, cur.storeId());
+        } else {
+            jdbc.update(
+                "UPDATE memory_items SET status = 'rejected', confirmed_by = ?, confirmed_at = ?, updated_at = ? " +
+                "WHERE id = ? AND store_id = ?",
+                cur.employeeId(), OffsetDateTime.now().toString(), OffsetDateTime.now().toString(),
+                memoryId, cur.storeId());
+        }
+
+        return Map.of("memory_id", memoryId, "key", key == null ? "" : key,
+            "status", correctedValue != null && !correctedValue.isBlank() || confirmed ? "confirmed" : "rejected");
+    }
+
     private Map<String, Object> validateAndGet(String taskId) {
         Map<String, Object> task;
         try {

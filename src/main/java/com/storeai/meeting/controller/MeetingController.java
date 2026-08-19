@@ -380,10 +380,39 @@ public class MeetingController {
 
     private String diagnosticNextStep(Meeting meeting) {
         if (meeting.getAudioUrl() == null || meeting.getAudioUrl().isBlank()) return "本机尚未确认录音已落盘：请在同一设备的会谈详情重新上传；若手机是 HTTP 地址，改用“上传已有录音”或 HTTPS 后再录制。";
-        if ("failed".equals(meeting.getStatus()) && meeting.getAsrErrorCode() != null) return "服务端已保留录音。请查看错误码并使用“重新提交转写”；网络类错误会自动重试，格式/授权类错误需处理后再试。";
+        // 失败态：统一优先展示具体 fail_reason，并附上可读的错误分类。
+        // 注意区分转写失败（asr_error_code）与分析失败（analysis_error_code），两者都可能让 status=failed。
+        if ("failed".equals(meeting.getStatus())) {
+            String specific = meeting.getFailReason();
+            String code = meeting.getAsrErrorCode();
+            String errorCode = code != null ? code : meeting.getAnalysisErrorCode();
+            String category = describeErrorCategory(errorCode);
+            if (specific != null && !specific.isBlank()) {
+                // 若 fail_reason 已自带分类/括号信息则不再重复拼接，避免冗余。
+                return specific;
+            }
+            return (category != null ? category : "处理失败") + "，录音与逐字稿已保留。";
+        }
         if (meeting.getAsrRetryAt() != null) return "服务端已安排自动重试；到达重试时间前无需重复上传。";
+        if (meeting.getAnalysisRetryAt() != null) return "服务端已安排自动重试分析；到达重试时间前无需重复操作。";
         if ("analyzing".equals(meeting.getStatus())) return "录音与转写已通过，正在生成业务分析；如超过 10 分钟未更新，请从运行监控处理。";
         return "链路状态正常；可在会谈详情查看逐字稿、评分和业务闭环。";
+    }
+
+    /** 把后端技术化的错误码翻译为员工可读的中文分类。 */
+    private String describeErrorCategory(String code) {
+        if (code == null) return "语音识别失败";
+        return switch (code) {
+            case "transcription_failed" -> "语音识别失败";
+            case "service_authorization" -> "语音服务授权异常，请联系管理员";
+            case "audio_rejected" -> "录音格式不被语音服务支持，请使用 MP4/AAC/WebM/MP3";
+            case "poll_unavailable" -> "语音识别结果查询失败，多为网络问题";
+            case "result_download" -> "语音识别结果下载失败，多为网络问题";
+            case "asr_unconfigured" -> "语音识别服务尚未配置";
+            case "analysis_exception", "model_invalid_response" -> "AI 分析暂时不可用，系统会自动重试";
+            case "transcript_invalid" -> "转写内容异常，建议重新录制";
+            default -> "错误码 " + code;
+        };
     }
 
     private String saveToLocal(String fileName, InputStream data) throws Exception {

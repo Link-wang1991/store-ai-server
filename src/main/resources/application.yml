@@ -6,11 +6,11 @@ spring:
     name: store-ai-server
   # 生产环境必须显式设置 SPRING_PROFILES_ACTIVE；演示数据仅在 dev profile 下初始化。
   profiles:
-    active: ${SPRING_PROFILES_ACTIVE:}
+    active: dev
   datasource:
-    url: ${DB_URL}
-    username: ${DB_USERNAME}
-    password: ${DB_PASSWORD}
+    url: jdbc:mysql://rm-bp16c2h5tv22r0ckhko.mysql.rds.aliyuncs.com:3306/store-ai?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+    username: mianjen
+    password: "yqc900718!"
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       maximum-pool-size: ${DB_POOL_MAX:20}
@@ -39,14 +39,27 @@ mybatis-plus:
     log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
 
 jwt:
-  secret: ${JWT_SECRET}
-  expiration: ${JWT_EXPIRATION:604800000}
+  secret: store-ai-jwt-secret-key-must-be-at-least-256-bits-long
+  expiration: 604800000
 
 # 免密角色体验默认关闭。仅本机 local profile 可显式打开，且永不应在公网部署中开启。
 app:
   local-preview-login:
     enabled: ${LOCAL_PREVIEW_LOGIN_ENABLED:false}
     owner-email: ${LOCAL_PREVIEW_OWNER_EMAIL:owner@demo.com}
+  # 短信验证码下发。mode=mock（默认）仅打印到日志并回传 devCode，供联调；
+  # 生产改为 mode=aliyun 并填写下方阿里云凭证/签名/模板（支持环境变量注入）。
+  sms:
+    mode: ${SMS_MODE:mock}
+    aliyun:
+      access-key-id: ${ALIYUN_SMS_ACCESS_KEY_ID:}
+      access-key-secret: ${ALIYUN_SMS_ACCESS_KEY_SECRET:}
+      sign-name: ${ALIYUN_SMS_SIGN_NAME:}
+      endpoint: ${ALIYUN_SMS_ENDPOINT:dysmsapi.aliyuncs.com}
+      # 模板变量须为 ${code}；可只配通用 template-code，也可按业务单独覆盖。
+      template-code: ${ALIYUN_SMS_TEMPLATE_CODE:}
+      template-code-login: ${ALIYUN_SMS_TEMPLATE_LOGIN:}
+      template-code-reset-password: ${ALIYUN_SMS_TEMPLATE_RESET:}
 
 storage:
   provider: ${STORAGE_PROVIDER:local}
@@ -61,16 +74,24 @@ minio:
   bucket-meeting: ${MINIO_BUCKET_MEETING:store-meeting}
 
 ai:
-  provider: ${AI_PROVIDER:mock}
+  provider: deepseek
   deepseek:
-    api-key: ${DEEPSEEK_API_KEY:}
-    base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
-    model: ${DEEPSEEK_MODEL:deepseek-chat}
+    api-key: sk-9896a9984c5b4b939868c0adc7d13dc6
+    base-url: https://api.deepseek.com
+    model: deepseek-chat
   qwen:
-    api-key: ${QWEN_API_KEY:}
-    text-model: ${QWEN_TEXT_MODEL:qwen-plus}
+    api-key: sk-1441823d0d384ae2a0fb0db0ea4a65d2
+    text-model: qwen-plus
     vision-model: ${QWEN_VISION_MODEL:qwen-vl-plus}
     asr-api-url: https://dashscope.aliyuncs.com/api/v1/services/audio/asr/asynctask
+
+# 会谈自动重试次数。临时设为 1 以关闭自动重试（失败一次即进入失败态，不再自动重试，
+# 避免语音识别/分析反复调用外部服务消耗 token/费用）；恢复自动重试时改回 3/4 并重启。
+meeting:
+  # ASR 语音识别提交的最大尝试次数（默认 4）
+  asr-max-submit-attempts: ${MEETING_ASR_MAX_SUBMIT_ATTEMPTS:1}
+  # AI 会谈分析的最大尝试次数（默认 3）
+  analysis-max-attempts: ${MEETING_ANALYSIS_MAX_ATTEMPTS:1}
 
 springdoc:
   api-docs:
@@ -78,7 +99,7 @@ springdoc:
   swagger-ui:
     path: /swagger-ui.html
 
-# 微信小程序登录（一键登录 + 绑定手机号）。生产环境通过环境变量 WX_APPID / WX_SECRET 注入，切勿提交真实 secret。
+# 微信小程序登录（一键登录 + 绑定手机号）。appid/secret 为真实小程序凭证，注意保密、勿外泄。
 wx:
   appid: ${WX_APPID:wx6ade085c48e2a736}
-  secret: ${WX_SECRET:}
+  secret: ${WX_SECRET:a7e0ebf41a9ff49a406c0f0650fb4576}

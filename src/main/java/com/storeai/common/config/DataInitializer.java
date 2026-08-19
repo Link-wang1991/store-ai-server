@@ -203,11 +203,21 @@ public class DataInitializer implements CommandLineRunner {
         for (String[] s : supers) {
             final String phone = s[0];
             final String rawPwd = s[1];
-            // 已存在则跳过
             Integer exists = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM users WHERE phone = ?", Integer.class, phone);
             if (exists != null && exists > 0) {
-                log.info("平台超级管理员已存在，跳过初始化: {}", phone);
+                // 用户已存在：确认其已挂 employee（super_admin 无 employee 档案时无法生成登录态），缺失则补建
+                String userId = jdbc.queryForObject(
+                    "SELECT id FROM users WHERE phone = ? LIMIT 1", String.class, phone);
+                Integer empCount = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM employees WHERE user_id = ?", Integer.class, userId);
+                if (empCount != null && empCount == 0) {
+                    jdbc.update("INSERT INTO employees (id, store_id, user_id, name, role, status, data_scope, created_at, updated_at) VALUES (?, ?, ?, '超级管理员', 'super_admin', 'active', 'store', NOW(), NOW())",
+                        uuid(), platformStoreId, userId);
+                    log.info("平台超级管理员已存在但缺员工档案，已补建: phone={}", phone);
+                } else {
+                    log.info("平台超级管理员已存在，跳过初始化: {}", phone);
+                }
                 continue;
             }
             String userId = uuid();

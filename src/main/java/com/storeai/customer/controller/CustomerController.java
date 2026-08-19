@@ -1,5 +1,6 @@
 package com.storeai.customer.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.storeai.common.dto.ApiResponse;
 import com.storeai.customer.entity.Customer;
 import com.storeai.customer.service.CustomerBriefService;
@@ -11,6 +12,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -25,6 +27,7 @@ public class CustomerController {
     private final CustomerIdentificationService customerIdentificationService;
     private final CustomerCheckinService customerCheckinService;
     private final CustomerTimelineService customerTimelineService;
+    private final ObjectMapper objectMapper;
 
     @GetMapping
     public ApiResponse<List<Customer>> list() {
@@ -35,6 +38,13 @@ public class CustomerController {
     public ApiResponse<List<Map<String, Object>>> identify(@RequestParam String keyword) {
         return ApiResponse.ok(customerIdentificationService.identify(keyword));
     }
+
+    @PostMapping("/merge")
+    public ApiResponse<Map<String, Object>> merge(@RequestBody MergeRequest req) {
+        return ApiResponse.ok(customerService.merge(req.targetId(), req.sourceId()));
+    }
+
+    public record MergeRequest(String targetId, String sourceId) {}
 
     @GetMapping("/{id}/brief")
     public ApiResponse<Map<String, Object>> brief(@PathVariable String id) {
@@ -55,8 +65,12 @@ public class CustomerController {
     public record CheckinRequest(String note) {}
 
     @GetMapping("/{id}")
-    public ApiResponse<Customer> detail(@PathVariable String id) {
-        return ApiResponse.ok(customerService.getById(id));
+    public ApiResponse<Map<String, Object>> detail(@PathVariable String id) {
+        Customer customer = customerService.getById(id);
+        Map<String, Object> result = objectMapper.convertValue(customer, Map.class);
+        // 附加记忆项（含 id/status），供档案页直接确认/修正/拒绝
+        result.put("memories", customerService.getMemories(id));
+        return ApiResponse.ok(result);
     }
 
     @PostMapping("/{id}/update")

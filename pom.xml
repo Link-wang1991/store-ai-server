@@ -25,6 +25,7 @@
         <springdoc.version>2.6.0</springdoc.version>
         <pdfbox.version>2.0.30</pdfbox.version>
         <poi.version>5.3.0</poi.version>
+        <aliyun-dysmsapi.version>2.0.24</aliyun-dysmsapi.version>
     </properties>
 
     <dependencies>
@@ -110,6 +111,13 @@
             <groupId>org.apache.poi</groupId>
             <artifactId>poi-ooxml</artifactId>
             <version>${poi.version}</version>
+        </dependency>
+
+        <!-- 阿里云短信（验证码下发；生产通过 app.sms.mode=aliyun 启用） -->
+        <dependency>
+            <groupId>com.aliyun</groupId>
+            <artifactId>dysmsapi20170525</artifactId>
+            <version>${aliyun-dysmsapi.version}</version>
         </dependency>
 
         <!-- Lombok -->

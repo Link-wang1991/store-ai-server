@@ -34,6 +34,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 @RequiredArgsConstructor
@@ -45,6 +46,13 @@ public class AuthService {
     private static final long SMS_RESEND_INTERVAL_MILLIS = 60 * 1000L;
     private static final int SMS_MAX_ATTEMPTS = 5;
     private static final SecureRandom RANDOM = new SecureRandom();
+
+    /**
+     * wx.login 的 code 只能被微信 code2session 消费一次，但同一会话内 Taro.login() 可能返回同一个 code。
+     * 这里用内存缓存 code→openid，保证重复调用直接复用，避免第二次报 "code been used"。
+     * code 短期有效（几分钟），内存缓存足够；多实例部署可换 Redis。
+     */
+    private final ConcurrentHashMap<String, String> wxCode2openidCache = new ConcurrentHashMap<>();
 
     private static final Map<String, String> ROLE_LABELS = Map.of(
         "owner", "老板",
@@ -192,10 +200,11 @@ public class AuthService {
         var employee = employeeRepository.selectOne(
             new LambdaQueryWrapper<Employee>().apply("user_id = {0}", user.getId()));
         if (employee == null) {
-            throw BizException.badRequest("未找到关联的员工信息，请联系管理员");
+            // 平台超级管理员不绑定真实门店员工档案，这里给出更清晰的引导。
+            throw BizException.badRequest("该手机号是平台管理员账号，未关联门店员工档案，无法在小程序端登录，请使用门店员工账号（或联系管理员录入）");
         }
         if (!"active".equals(employee.getStatus())) {
-            throw BizException.badRequest("账号已停用");
+            throw BizException.badRequest("该账号已停用，请联系门店管理员");
         }
 
         // 查找门店
@@ -367,7 +376,17 @@ public class AuthService {
         if (user == null) {
             throw BizException.badRequest("该手机号尚未开通账号，请联系门店管理员");
         }
-        if (user.getWxOpenid() == null || user.getWxOpenid().isBlank()) {
+        // 同一 openid 已绑定其他手机号账号：一个微信只能绑定一个账号，避免串号。
+        User openidUser = userRepository.selectOne(new LambdaQueryWrapper<User>().eq(User::getWxOpenid, openid));
+        if (openidUser != null && !openidUser.getId().equals(user.getId())) {
+            throw BizException.badRequest("该微信已绑定其他手机号，请直接使用原手机号对应的微信登录");
+        }
+        // 该手机号已绑定过其他微信：拒绝再次绑定，避免不同微信都能登进同一账号、且 openid 无法回写。
+        String boundOpenid = user.getWxOpenid();
+        if (boundOpenid != null && !boundOpenid.isBlank() && !boundOpenid.equals(openid)) {
+            throw BizException.badRequest("该手机号已绑定其他微信账号，请使用原微信登录");
+        }
+        if (boundOpenid == null || boundOpenid.isBlank()) {
             user.setWxOpenid(openid);
             userRepository.updateById(user);
         }
@@ -377,6 +396,9 @@ public class AuthService {
     /** 用 wx.login 的 code 换取微信 openid（code2session）。 */
     private String code2Session(String code) {
         if (code == null || code.isBlank()) throw BizException.badRequest("微信登录码为空");
+        // 命中缓存则直接复用，避免同一 code 二次消费时报 "code been used"
+        String cached = wxCode2openidCache.get(code);
+        if (cached != null) return cached;
         if (wxAppid == null || wxAppid.isBlank() || wxSecret == null || wxSecret.isBlank()) {
             throw BizException.badRequest("微信登录未配置 appid/secret");
         }
@@ -400,6 +422,8 @@ public class AuthService {
             if (openid == null || openid.isBlank()) {
                 throw BizException.badRequest("微信登录未返回 openid");
             }
+            // 缓存 code→openid，供同一会话内重复调用复用；code 有效期短，不主动清理也无碍
+            wxCode2openidCache.put(code, openid);
             return openid;
         } catch (BizException e) {
             throw e;

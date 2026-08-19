@@ -38,7 +38,7 @@ public class TaskTraceService {
                    t.assigned_to, t.created_by, t.due_at, t.feedback, t.business_outcome_status,
                    t.result_code, t.result_detail, t.result_recorded_at, t.result_verified_at,
                    t.result_verified_by, t.next_follow_at, t.requires_result_verification, t.source_type, t.source_id,
-                   t.source_meeting_id, t.created_at, t.updated_at,
+                   t.source_meeting_id, t.has_attachments, t.created_at, t.updated_at,
                    c.name AS customer_name, c.stage AS customer_stage
             FROM tasks t
             LEFT JOIN customers c ON c.id = t.customer_id AND c.store_id = t.store_id
@@ -62,7 +62,7 @@ public class TaskTraceService {
                    t.assigned_to, t.created_by, t.due_at, t.feedback, t.business_outcome_status,
                    t.result_code, t.result_detail, t.result_recorded_at, t.result_verified_at,
                    t.result_verified_by, t.next_follow_at, t.requires_result_verification, t.source_type, t.source_id,
-                   t.source_meeting_id, t.created_at, t.updated_at,
+                   t.source_meeting_id, t.has_attachments, t.created_at, t.updated_at,
                    c.name AS customer_name, c.stage AS customer_stage
             FROM tasks t
             LEFT JOIN customers c ON c.id = t.customer_id AND c.store_id = t.store_id

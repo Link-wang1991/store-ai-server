@@ -39,6 +39,8 @@ public class SecurityConfig {
                     "/api/auth/login",
                     "/api/auth/send-code",
                     "/api/auth/login-by-phone",
+                    "/api/auth/wx-login",
+                    "/api/auth/wx-bind",
                     "/api/auth/demo-login",
                     "/api/auth/local-preview-accounts",
                     "/api/auth/local-preview-login",

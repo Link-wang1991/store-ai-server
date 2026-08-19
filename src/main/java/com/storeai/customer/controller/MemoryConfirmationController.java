@@ -22,5 +22,15 @@ public class MemoryConfirmationController {
         return ApiResponse.ok(memoryConfirmationService.confirmFromTask(id, req.confirmed(), req.correctedValue()));
     }
 
+    /** 客户档案直连确认：对指定记忆项确认/修正/拒绝，不依赖确认任务。 */
+    @PostMapping("/customers/{customerId}/memories/{memoryId}/confirm")
+    public ApiResponse<Map<String, Object>> confirmMemory(
+            @PathVariable String customerId,
+            @PathVariable String memoryId,
+            @RequestBody ConfirmRequest req) {
+        return ApiResponse.ok(
+            memoryConfirmationService.confirmMemoryItem(customerId, memoryId, req.confirmed(), req.correctedValue()));
+    }
+
     public record ConfirmRequest(boolean confirmed, String correctedValue) {}
 }

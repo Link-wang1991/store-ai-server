@@ -37,8 +37,6 @@ import java.util.UUID;
 public class MeetingTranscriptionService {
 
     private static final String DS_BASE = "https://dashscope.aliyuncs.com/api/v1";
-    /** 一次网络抖动不应让首次会谈直接失败；四次仍失败才转为人工处理。 */
-    private static final int MAX_SUBMIT_ATTEMPTS = 4;
     private static final int[] RETRY_DELAYS_SECONDS = {30, 90, 300, 900};
 
     private final JdbcTemplate jdbc;
@@ -56,6 +54,13 @@ public class MeetingTranscriptionService {
 
     @Value("${storage.provider:local}")
     private String storageProvider;
+
+    /**
+     * ASR 语音识别提交的最大尝试次数。默认 4 次；为临时关闭自动重试（避免重复上传/提交消耗费用）
+     * 可配置为 1，失败一次即进入用户可见的失败态，不再自动重试。
+     */
+    @Value("${meeting.asr-max-submit-attempts:4}")
+    private int maxSubmitAttempts;
 
     /** 将已保存的会谈放入后台提交队列。 */
     public void queue(String meetingId) {
@@ -92,7 +97,7 @@ public class MeetingTranscriptionService {
               AND (asr_retry_at IS NULL OR asr_retry_at <= NOW())
             ORDER BY updated_at ASC
             LIMIT 20
-            """, String.class, MAX_SUBMIT_ATTEMPTS);
+            """, String.class, maxSubmitAttempts);
         ids.forEach(this::queue);
     }
 
@@ -259,7 +264,7 @@ public class MeetingTranscriptionService {
             markFailed(meetingId, failure.message() + "，请检查录音或联系管理员后重新提交。", failure.code());
             return;
         }
-        if (attempts != null && attempts >= MAX_SUBMIT_ATTEMPTS) {
+        if (attempts != null && attempts >= maxSubmitAttempts) {
             markFailed(meetingId, "语音识别多次提交未成功。请检查网络后重新提交；录音仍已保留。", failure.code());
             return;
         }

@@ -21,7 +21,8 @@ public class TableSchema {
         "store_config", "activities", "meetings", "meeting_transcripts",
         "meeting_analysis", "meeting_consents", "meeting_access_logs",
         "playbooks", "followups", "customer_feedback",
-        "service_projects", "campaigns", "schedules"
+        "service_projects", "campaigns", "schedules",
+        "task_attachments"
     );
 
     // 有多门店隔离的表（查询时自动加 store_id=current）
@@ -38,7 +39,8 @@ public class TableSchema {
         "meetings", "meeting_transcripts", "meeting_analysis",
         "meeting_consents", "meeting_access_logs",
         "playbooks", "followups", "customer_feedback",
-        "service_projects", "campaigns", "schedules"
+        "service_projects", "campaigns", "schedules",
+        "task_attachments"
     );
 
     // 消息记录是只追加表，只有 created_at，没有 updated_at。
