@@ -183,10 +183,11 @@ public class DataInitializer implements CommandLineRunner {
     // 平台超级管理员（手机号+密码，无邮箱登录）
     // ============================================================
     private void seedSuperAdmin() {
-        // 超管在小程序端被当作"初始化门店的管理员/店长"：
-        // 绑定到第一个真实门店（尚美美容旗舰店），看到该门店全店数据。
+        // 超管在小程序端被当作"初始化门店（超管测试门店）的管理员/店长"：
+        // 作为该门店的员工，角色为 owner（老板/店长），看到该门店全店数据。
         // 跨门店的"所有店面管理"后台为后续开发，当前不涉及。
         String initStoreId = findInitStoreId();
+        String initRole = "owner";
 
         // 两个指定的平台超级管理员（手机号+密码）
         String[][] supers = {
@@ -199,29 +200,30 @@ public class DataInitializer implements CommandLineRunner {
             Integer exists = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM users WHERE phone = ?", Integer.class, phone);
             if (exists != null && exists > 0) {
-                // 用户已存在：确认其已挂 employee（super_admin 无 employee 档案时无法生成登录态），缺失则补建
+                // 用户已存在：确认其已挂 employee（无 employee 档案时无法生成登录态），缺失则补建
                 String userId = jdbc.queryForObject(
                     "SELECT id FROM users WHERE phone = ? LIMIT 1", String.class, phone);
                 Integer empCount = jdbc.queryForObject(
                     "SELECT COUNT(*) FROM employees WHERE user_id = ?", Integer.class, userId);
                 if (empCount != null && empCount == 0) {
-                    jdbc.update("INSERT INTO employees (id, store_id, user_id, name, role, status, data_scope, created_at, updated_at) VALUES (?, ?, ?, '超级管理员', 'super_admin', 'active', 'store', NOW(), NOW())",
-                        uuid(), initStoreId, userId);
-                    log.info("平台超级管理员已存在但缺员工档案，已补建(绑定初始化门店): phone={}", phone);
+                    jdbc.update("INSERT INTO employees (id, store_id, user_id, name, role, status, data_scope, created_at, updated_at) VALUES (?, ?, ?, '超级管理员', ?, 'active', 'store', NOW(), NOW())",
+                        uuid(), initStoreId, userId, initRole);
+                    log.info("平台超级管理员已存在但缺员工档案，已补建(门店员工,绑定初始化门店): phone={}, role={}", phone, initRole);
                 } else {
-                    // 已存在员工档案：将 store_id 统一迁移到初始化门店，使超管数据范围对齐该门店
-                    jdbc.update("UPDATE employees SET store_id = ?, updated_at = NOW() WHERE user_id = ? AND store_id <> ?",
-                        initStoreId, userId, initStoreId);
-                    log.info("平台超级管理员已存在，员工档案已绑定到初始化门店: phone={}, store={}", phone, initStoreId);
+                    // 已存在员工档案：绑定到初始化门店，并统一为门店管理角色（owner/店长）
+                    jdbc.update("UPDATE employees SET store_id = ?, role = ?, updated_at = NOW() WHERE user_id = ?",
+                        initStoreId, initRole, userId);
+                    log.info("平台超级管理员已存在，员工档案已绑定到初始化门店并设为门店管理角色: phone={}, store={}, role={}",
+                        phone, initStoreId, initRole);
                 }
                 continue;
             }
             String userId = uuid();
             jdbc.update("INSERT INTO users (id, email, phone, name, password_hash, created_at) VALUES (?, NULL, ?, '超级管理员', ?, NOW())",
                 userId, phone, passwordEncoder.encode(rawPwd));
-            jdbc.update("INSERT INTO employees (id, store_id, user_id, name, role, status, data_scope, created_at, updated_at) VALUES (?, ?, ?, '超级管理员', 'super_admin', 'active', 'store', NOW(), NOW())",
-                uuid(), initStoreId, userId);
-            log.info("平台超级管理员已初始化(绑定初始化门店): phone={}, 密码={}", phone, rawPwd);
+            jdbc.update("INSERT INTO employees (id, store_id, user_id, name, role, status, data_scope, created_at, updated_at) VALUES (?, ?, ?, '超级管理员', ?, 'active', 'store', NOW(), NOW())",
+                uuid(), initStoreId, userId, initRole);
+            log.info("平台超级管理员已初始化(门店员工,绑定初始化门店): phone={}, 密码={}, role={}", phone, rawPwd, initRole);
         }
     }
 
