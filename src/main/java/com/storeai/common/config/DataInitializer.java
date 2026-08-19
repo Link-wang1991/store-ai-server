@@ -183,17 +183,10 @@ public class DataInitializer implements CommandLineRunner {
     // 平台超级管理员（手机号+密码，无邮箱登录）
     // ============================================================
     private void seedSuperAdmin() {
-        // 平台占位门店（不绑定真实门店业务，仅用于满足 employees.store_id NOT NULL）
-        String platformStoreId;
-        try {
-            platformStoreId = jdbc.queryForObject(
-                "SELECT id FROM stores WHERE id = 'platform'", String.class);
-        } catch (Exception e) {
-            platformStoreId = "platform";
-            jdbc.update("INSERT INTO stores (id, name, owner_id, created_at, updated_at) VALUES (?, '平台运营', NULL, NOW(), NOW())",
-                platformStoreId);
-            log.info("创建平台占位门店: id=platform");
-        }
+        // 超管在小程序端被当作"初始化门店的管理员/店长"：
+        // 绑定到第一个真实门店（尚美美容旗舰店），看到该门店全店数据。
+        // 跨门店的"所有店面管理"后台为后续开发，当前不涉及。
+        String initStoreId = findInitStoreId();
 
         // 两个指定的平台超级管理员（手机号+密码）
         String[][] supers = {
@@ -213,10 +206,13 @@ public class DataInitializer implements CommandLineRunner {
                     "SELECT COUNT(*) FROM employees WHERE user_id = ?", Integer.class, userId);
                 if (empCount != null && empCount == 0) {
                     jdbc.update("INSERT INTO employees (id, store_id, user_id, name, role, status, data_scope, created_at, updated_at) VALUES (?, ?, ?, '超级管理员', 'super_admin', 'active', 'store', NOW(), NOW())",
-                        uuid(), platformStoreId, userId);
-                    log.info("平台超级管理员已存在但缺员工档案，已补建: phone={}", phone);
+                        uuid(), initStoreId, userId);
+                    log.info("平台超级管理员已存在但缺员工档案，已补建(绑定初始化门店): phone={}", phone);
                 } else {
-                    log.info("平台超级管理员已存在，跳过初始化: {}", phone);
+                    // 已存在员工档案：将 store_id 统一迁移到初始化门店，使超管数据范围对齐该门店
+                    jdbc.update("UPDATE employees SET store_id = ?, updated_at = NOW() WHERE user_id = ? AND store_id <> ?",
+                        initStoreId, userId, initStoreId);
+                    log.info("平台超级管理员已存在，员工档案已绑定到初始化门店: phone={}, store={}", phone, initStoreId);
                 }
                 continue;
             }
@@ -224,9 +220,26 @@ public class DataInitializer implements CommandLineRunner {
             jdbc.update("INSERT INTO users (id, email, phone, name, password_hash, created_at) VALUES (?, NULL, ?, '超级管理员', ?, NOW())",
                 userId, phone, passwordEncoder.encode(rawPwd));
             jdbc.update("INSERT INTO employees (id, store_id, user_id, name, role, status, data_scope, created_at, updated_at) VALUES (?, ?, ?, '超级管理员', 'super_admin', 'active', 'store', NOW(), NOW())",
-                uuid(), platformStoreId, userId);
-            log.info("平台超级管理员已初始化: phone={}, 密码={}", phone, rawPwd);
+                uuid(), initStoreId, userId);
+            log.info("平台超级管理员已初始化(绑定初始化门店): phone={}, 密码={}", phone, rawPwd);
         }
+    }
+
+    /**
+     * 查找"初始化门店"（超管专属）：一个与尚美演示门店、platform 占位门店都隔离的独立门店，
+     * 不存在则创建。超管在小程序端作为该门店的管理员/店长，数据范围严格限定在本门店。
+     */
+    private String findInitStoreId() {
+        try {
+            String id = jdbc.queryForObject(
+                "SELECT id FROM stores WHERE id = 'init'", String.class);
+            if (id != null && !id.isBlank()) return id;
+        } catch (Exception ignored) {
+            // 门店表无此门店，走创建
+        }
+        jdbc.update("INSERT INTO stores (id, name, owner_id, created_at, updated_at) VALUES ('init', '超管测试门店', NULL, NOW(), NOW())");
+        log.info("创建初始化门店(供超管绑定): id=init, name=超管测试门店");
+        return "init";
     }
 
     // ============================================================
@@ -350,10 +363,11 @@ public class DataInitializer implements CommandLineRunner {
         }
     }
 
-    /** 查找第一个门店，不存在则创建 */
+    /** 查找"尚美美容旗舰店"演示门店（排除 init/platform 等系统门店），不存在则创建 */
     private String findOrCreateStore() {
         try {
-            String id = jdbc.queryForObject("SELECT id FROM stores ORDER BY created_at ASC LIMIT 1", String.class);
+            String id = jdbc.queryForObject(
+                "SELECT id FROM stores WHERE id <> 'init' AND id <> 'platform' ORDER BY created_at ASC LIMIT 1", String.class);
             // 统一更新门店名称
             jdbc.update("UPDATE stores SET name = ? WHERE id = ?", "尚美美容旗舰店", id);
             return id;

@@ -112,7 +112,6 @@ public class CustomerService {
      */
     @Transactional
     public Map<String, Object> merge(String targetId, String sourceId) {
-        if (!cur.isAdmin()) throw BizException.forbidden("只有店长/老板可以合并客户");
         if (targetId == null || targetId.isBlank() || sourceId == null || sourceId.isBlank()) {
             throw BizException.badRequest("请选择要保留的客户和待合并的客户");
         }
@@ -125,6 +124,10 @@ public class CustomerService {
                 || !cur.storeId().equals(source.getStoreId())) {
             throw BizException.notFound("客户");
         }
+        // 权限：店长/老板可合并任意客户；普通员工仅可合并"自己负责的"待合并客户（source），
+        // 用于把自己创建的临时录音占位客户绑定到正式客户，不能动其他员工的客户。
+        boolean canMerge = cur.isAdmin() || cur.employeeId().equals(source.getAssignedTo());
+        if (!canMerge) throw BizException.forbidden("只有店长/老板，或该客户负责人可以合并客户");
 
         // 1. 迁移关联数据：会谈、任务、互动时间线、记忆
         jdbc.update("UPDATE meetings SET customer_id = ? WHERE customer_id = ? AND store_id = ?",

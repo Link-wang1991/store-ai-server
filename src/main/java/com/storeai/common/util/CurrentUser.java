@@ -38,11 +38,12 @@ public class CurrentUser {
 
     public boolean isAdmin() {
         String r = role();
-        return "owner".equals(r) || "manager".equals(r) || "admin".equals(r);
+        // 平台超管拥有与 owner/manager/admin 等同的管理权限（可执行合并客户、编辑档案等）
+        return "owner".equals(r) || "manager".equals(r) || "admin".equals(r) || isSuperAdmin();
     }
 
     public boolean isOwner() {
-        return "owner".equals(role());
+        return "owner".equals(role()) || isSuperAdmin();
     }
 
     /** 平台超级管理员（不绑定具体门店，可跨门店管理）。 */
