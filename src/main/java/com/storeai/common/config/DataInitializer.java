@@ -64,6 +64,7 @@ public class DataInitializer implements CommandLineRunner {
             {"customers", "import_raw", "JSON"},
             {"customers", "last_active_at", "DATETIME"},
             {"customers", "last_deal_at", "DATETIME"},
+            {"customers", "birthday", "DATE"},
             {"meetings", "employee_name", "VARCHAR(100)"},
             {"meetings", "customer_name", "VARCHAR(200)"},
             {"meetings", "duration", "INT"},

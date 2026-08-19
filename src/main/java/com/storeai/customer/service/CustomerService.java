@@ -81,6 +81,7 @@ public class CustomerService {
         if (update.getPhone() != null) c.setPhone(update.getPhone());
         if (update.getGender() != null) c.setGender(update.getGender());
         if (update.getAge() != null) c.setAge(update.getAge());
+        if (update.getBirthday() != null) c.setBirthday(update.getBirthday());
         if (update.getStage() != null) c.setStage(update.getStage());
         if (update.getAssignedTo() != null) c.setAssignedTo(update.getAssignedTo());
         c.setUpdatedAt(OffsetDateTime.now());

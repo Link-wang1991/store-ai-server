@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 
 @Data
@@ -17,6 +18,7 @@ public class Customer {
     private String phone;
     private String gender;
     private Integer age;
+    private LocalDate birthday;     // 生日（可选，用于更完整画像）
     private String assignedTo;      // employee_id
     private String stage;           // new / intent / deal / regular / churn_risk
     private String pool;            // today / new / new_deal / regular / dormant / risk

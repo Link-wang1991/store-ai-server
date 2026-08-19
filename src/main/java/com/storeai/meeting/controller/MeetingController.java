@@ -160,17 +160,34 @@ public class MeetingController {
             throw BizException.badRequest("不允许手动修改该转写状态");
         }
 
-        // 如果绑定了新客户，清理旧的占位客户并更新 meeting 的客户名
+        // 如果绑定了新客户，更新 meeting 的客户名
         String newCustomerId = (String) safeFields.get("customer_id");
         if (newCustomerId != null && m.getCustomerId() != null && !newCustomerId.equals(m.getCustomerId())) {
-            var oldCust = customerRepo.selectById(m.getCustomerId());
-            if (oldCust != null && oldCust.getName() != null && oldCust.getName().startsWith("新客户")) {
-                customerRepo.deleteById(m.getCustomerId());
-            }
             // 更新 meeting 的客户名字段
             var newCust = customerRepo.selectById(newCustomerId);
             if (newCust == null || !cur.storeId().equals(newCust.getStoreId())) throw BizException.notFound("客户");
             if (newCust.getName() != null) safeFields.put("customer_name", newCust.getName());
+
+            // 旧的临时占位客户：仅当不再被任何其他会谈引用时才删除。
+            // 若多条会谈共用同一个临时客户，绑定其中一条时保留该临时客户，避免其他会谈的 customer_id 失效。
+            var oldCust = customerRepo.selectById(m.getCustomerId());
+            if (oldCust != null && oldCust.getName() != null && oldCust.getName().startsWith("新客户")) {
+                Integer refs = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM meetings WHERE store_id = ? AND customer_id = ? AND id <> ?",
+                    Integer.class, cur.storeId(), m.getCustomerId(), id);
+                if (refs == null || refs == 0) {
+                    // 先把旧占位客户的关联数据（记忆、互动时间线、任务）迁移到新客户，
+                    // 再删除占位客户，避免这些数据因 customer_id 指向已删客户而丢失。
+                    String oldCustId = m.getCustomerId();
+                    jdbc.update("UPDATE interactions SET customer_id = ? WHERE customer_id = ? AND store_id = ?",
+                        newCustomerId, oldCustId, cur.storeId());
+                    jdbc.update("UPDATE tasks SET customer_id = ? WHERE customer_id = ? AND store_id = ?",
+                        newCustomerId, oldCustId, cur.storeId());
+                    jdbc.update("UPDATE memory_items SET customer_id = ? WHERE customer_id = ? AND store_id = ?",
+                        newCustomerId, oldCustId, cur.storeId());
+                    customerRepo.deleteById(oldCustId);
+                }
+            }
         }
 
         var wrapper = new UpdateWrapper<Meeting>().eq("id", id);
