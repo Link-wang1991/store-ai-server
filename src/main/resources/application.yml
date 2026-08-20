@@ -47,18 +47,19 @@ app:
   local-preview-login:
     enabled: ${LOCAL_PREVIEW_LOGIN_ENABLED:false}
     owner-email: ${LOCAL_PREVIEW_OWNER_EMAIL:owner@demo.com}
-  # 短信验证码下发。mode=mock（默认）仅打印到日志并回传 devCode，供联调；
-  # 生产改为 mode=aliyun 并填写下方阿里云凭证/签名/模板（支持环境变量注入）。
+  # 短信验证码下发。mode=mock 仅打印到日志并回传 devCode，供联调；生产用 mode=aliyun。
+  # ⚠️ 阿里云 AccessKey 属敏感凭据，禁止写死到本文件。请通过环境变量注入：
+  #   ALIYUN_SMS_ACCESS_KEY_ID / ALIYUN_SMS_ACCESS_KEY_SECRET / ALIYUN_SMS_SIGN_NAME / ALIYUN_SMS_TEMPLATE_CODE
   sms:
     mode: ${SMS_MODE:aliyun}
     aliyun:
       access-key-id: ${ALIYUN_SMS_ACCESS_KEY_ID:}
       access-key-secret: ${ALIYUN_SMS_ACCESS_KEY_SECRET:}
-      sign-name: ${ALIYUN_SMS_SIGN_NAME:六安市裕安区有三软件开发}
+      sign-name: ${ALIYUN_SMS_SIGN_NAME:}
       endpoint: ${ALIYUN_SMS_ENDPOINT:dysmsapi.aliyuncs.com}
       # 模板变量须为 ${code}；可只配通用 template-code，也可按业务单独覆盖。
       # 验证码模板：您的验证码为：${code}，该验证码5分钟内有效，请勿泄露于他人！
-      template-code: ${ALIYUN_SMS_TEMPLATE_CODE:SMS_511655225}
+      template-code: ${ALIYUN_SMS_TEMPLATE_CODE:}
       template-code-login: ${ALIYUN_SMS_TEMPLATE_LOGIN:}
       template-code-reset-password: ${ALIYUN_SMS_TEMPLATE_RESET:}
 
