@@ -34,6 +34,12 @@ public class CustomerController {
         return ApiResponse.ok(customerService.listByScope());
     }
 
+    /** 新增客户（管理端录入）。 */
+    @PostMapping
+    public ApiResponse<Customer> create(@RequestBody Customer customer) {
+        return ApiResponse.ok(customerService.create(customer));
+    }
+
     @GetMapping("/identify")
     public ApiResponse<List<Map<String, Object>>> identify(@RequestParam String keyword) {
         return ApiResponse.ok(customerIdentificationService.identify(keyword));

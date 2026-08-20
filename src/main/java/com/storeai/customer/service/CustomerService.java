@@ -70,6 +70,31 @@ public class CustomerService {
             """, customerId, cur.storeId());
     }
 
+    /** 新增客户（管理端录入） */
+    @Transactional
+    public Customer create(Customer input) {
+        if (input.getName() == null || input.getName().isBlank()) {
+            throw BizException.badRequest("请填写客户姓名");
+        }
+        Customer c = new Customer();
+        c.setStoreId(cur.storeId());
+        c.setName(input.getName().trim());
+        c.setPhone(blankToNull(input.getPhone()));
+        c.setGender(blankToNull(input.getGender()));
+        c.setAge(input.getAge());
+        c.setBirthday(input.getBirthday());
+        c.setStage(input.getStage() == null || input.getStage().isBlank() ? "new" : input.getStage());
+        c.setPool(input.getPool() == null || input.getPool().isBlank() ? "new" : input.getPool());
+        c.setTags(blankToNull(input.getTags()));
+        c.setConcerns(blankToNull(input.getConcerns()));
+        c.setAssignedTo(input.getAssignedTo());
+        c.setTotalVisits(input.getTotalVisits() == null ? 0 : input.getTotalVisits());
+        c.setCreatedAt(OffsetDateTime.now());
+        c.setUpdatedAt(OffsetDateTime.now());
+        customerRepo.insert(c);
+        return c;
+    }
+
     /** 更新客户基础信息 */
     @Transactional
     public Customer update(String id, Customer update) {
@@ -188,6 +213,12 @@ public class CustomerService {
         if (!cur.isAdmin() && !cur.employeeId().equals(customer.getAssignedTo())) {
             throw BizException.forbidden("任务负责人可查看客户，但只有客户负责人可以修改或删除档案");
         }
+    }
+
+    private static String blankToNull(String value) {
+        if (value == null) return null;
+        String v = value.trim();
+        return v.isBlank() ? null : v;
     }
 
     private boolean hasOpenAssignedTask(String customerId) {

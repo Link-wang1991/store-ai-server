@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 @Tag(name = "员工账号")
 @RestController
@@ -35,6 +36,19 @@ public class EmployeeAccountController {
     @GetMapping("/switchable")
     public ApiResponse<List<EmployeeAccountService.AccountView>> switchable() {
         return ApiResponse.ok(employeeAccountService.listSwitchable());
+    }
+
+    /** 全店员工列表（管理端 CRUD）。 */
+    @GetMapping("/all")
+    public ApiResponse<List<Map<String, Object>>> all() {
+        return ApiResponse.ok(employeeAccountService.listAll());
+    }
+
+    /** 停用员工账号。 */
+    @PostMapping("/{employeeId}/deactivate")
+    public ApiResponse<Void> deactivate(@PathVariable String employeeId) {
+        employeeAccountService.deactivate(employeeId);
+        return ApiResponse.ok();
     }
 
     @PostMapping("/{employeeId}/preview-login")

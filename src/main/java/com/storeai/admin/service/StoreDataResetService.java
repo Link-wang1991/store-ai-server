@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.storeai.common.exception.BizException;
 import com.storeai.common.util.CurrentUser;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +24,7 @@ import java.util.UUID;
  * 只处理当前门店的经营数据，始终保留账号、员工、角色、门店配置、知识库和原始文件。
  * 清理操作会在删除前强制生成一份本地 JSON 备份，避免不可逆的误操作。
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class StoreDataResetService {
@@ -81,6 +83,63 @@ public class StoreDataResetService {
             preservedData(),
             backupLocation()
         );
+    }
+
+    /** 列出本店已生成的备份文件（按时间倒序）。 */
+    public List<Map<String, Object>> listBackups() {
+        requireOwner();
+        String storeId = cur.storeId();
+        String safeStoreId = storeId.replaceAll("[^a-zA-Z0-9_-]", "_");
+        String prefix = "store-ai-" + safeStoreId + "-";
+        Path directory = backupDirectory();
+        if (!Files.isDirectory(directory)) return List.of();
+
+        List<Map<String, Object>> result = new java.util.ArrayList<>();
+        try (var stream = Files.list(directory)) {
+            stream.filter(p -> p.getFileName() != null && p.getFileName().toString().startsWith(prefix)
+                        && p.getFileName().toString().endsWith(".json"))
+                .sorted((a, b) -> b.getFileName().toString().compareTo(a.getFileName().toString()))
+                .limit(50)
+                .forEach(p -> {
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("fileName", p.getFileName().toString());
+                    item.put("sizeBytes", safeSize(p));
+                    item.put("createdAt", safeLastModified(p));
+                    result.add(item);
+                });
+        } catch (Exception e) {
+            log.error("listBackups failed", e);
+        }
+        return result;
+    }
+
+    /** 校验归属后打开备份文件（仅返回本店前缀匹配的文件，防越权下载）。 */
+    public Path openBackup(String fileName) {
+        requireOwner();
+        String safeStoreId = cur.storeId().replaceAll("[^a-zA-Z0-9_-]", "_");
+        String prefix = "store-ai-" + safeStoreId + "-";
+        if (fileName == null || !fileName.startsWith(prefix) || !fileName.endsWith(".json")
+                || fileName.contains("..") || fileName.contains("/") || fileName.contains("\\")) {
+            throw BizException.notFound("备份文件");
+        }
+        Path directory = backupDirectory().normalize();
+        Path file = directory.resolve(fileName).normalize();
+        if (!file.startsWith(directory) || !Files.isRegularFile(file)) {
+            throw BizException.notFound("备份文件");
+        }
+        return file;
+    }
+
+    private long safeSize(Path p) {
+        try { return Files.size(p); } catch (Exception e) { return 0L; }
+    }
+
+    private String safeLastModified(Path p) {
+        try { return Files.getLastModifiedTime(p).toString(); } catch (Exception e) { return ""; }
+    }
+
+    private Path backupDirectory() {
+        return Path.of(System.getProperty("user.home"), "Documents", "门店AI助手备份");
     }
 
     /** 仅生成备份，不删除任何数据。 */

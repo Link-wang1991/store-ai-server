@@ -51,6 +51,7 @@ public class EmployeeAccountService {
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
     private final CurrentUser currentUser;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbc;
 
     @Transactional
     public AccountView create(CreateInput input) {
@@ -88,6 +89,40 @@ public class EmployeeAccountService {
         employee.setUpdatedAt(now);
         employeeRepository.insert(employee);
         return view(employee, user);
+    }
+
+    /** 全店员工列表（含停用），供管理端 CRUD。 */
+    public List<Map<String, Object>> listAll() {
+        requireAdmin();
+        return jdbc.queryForList("""
+            SELECT e.id AS employee_id, e.name, e.role, e.status, e.phone, e.data_scope,
+                   u.email,
+                   CASE WHEN e.role='owner' THEN 0 WHEN e.role='admin' THEN 1 WHEN e.role='manager' THEN 2 ELSE 3 END AS role_sort,
+                   e.created_at
+            FROM employees e
+            LEFT JOIN users u ON u.id = e.user_id
+            WHERE e.store_id = ?
+            ORDER BY role_sort ASC, e.created_at ASC
+            """, currentUser.storeId());
+    }
+
+    /** 删除员工（软停用）。不能删除老板本人。 */
+    public void deactivate(String employeeId) {
+        requireAdmin();
+        if (employeeId == null || employeeId.isBlank()) throw BizException.badRequest("请选择员工");
+        Employee employee = employeeRepository.selectById(employeeId);
+        if (employee == null || !currentUser.storeId().equals(employee.getStoreId())) {
+            throw BizException.notFound("员工");
+        }
+        if ("owner".equals(employee.getRole())) {
+            throw BizException.badRequest("不能停用老板账号");
+        }
+        if (employeeId.equals(currentUser.employeeId())) {
+            throw BizException.badRequest("不能停用当前登录账号");
+        }
+        employee.setStatus("inactive");
+        employee.setUpdatedAt(OffsetDateTime.now());
+        employeeRepository.updateById(employee);
     }
 
     /** 只给门店管理者返回同店可登录账号；不返回密码。 */
