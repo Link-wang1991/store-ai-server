@@ -98,7 +98,7 @@ public class ChatHistoryService {
     private String feedbackType(String messageId) {
         try {
             return jdbc.queryForObject("""
-                SELECT feedback_type FROM ai_feedback
+                SELECT feedback_type FROM answer_feedback
                 WHERE message_id = ? AND employee_id = ? AND store_id = ?
                 LIMIT 1
                 """, String.class, messageId, cur.employeeId(), cur.storeId());

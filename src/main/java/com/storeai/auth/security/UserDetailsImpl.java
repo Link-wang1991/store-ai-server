@@ -10,7 +10,7 @@ import java.util.Collection;
 import java.util.Collections;
 
 @Getter
-@Builder
+@Builder(toBuilder = true)
 public class UserDetailsImpl implements UserDetails {
 
     private String userId;         // auth_user_id

@@ -157,6 +157,11 @@ public class DataInitializer implements CommandLineRunner {
             {"knowledge_gaps", "resolved_at", "DATETIME"},
         };
         for (String[] c : cols) addColumnIfMissing(c[0], c[1], c[2]);
+        // 项目表（规范多项目）：store-ai 自建 projects，stores.project_id 关联它。
+        // 默认项目为「知颜」（美业门店 AI 经营助手）。始终执行，保证架构兼容。
+        createProjectsTableIfMissing();
+        addColumnIfMissing("stores", "project_id", "VARCHAR(64)");
+        seedDefaultProject();
         safeExec("ALTER TABLE chat_messages MODIFY COLUMN user_message TEXT NULL");
         safeExec("ALTER TABLE chat_messages MODIFY COLUMN ai_response TEXT NULL");
         // 放开 employees.role CHECK 约束，允许 admin / super_admin 等角色
@@ -172,23 +177,30 @@ public class DataInitializer implements CommandLineRunner {
             return;
         }
 
+        // 历史兼容迁移：把旧的 init 占位门店（及其冗余演示数据副本）迁移到 platform
+        // 占位门店，并把超管员工档案绑定到 platform。幂等，可重复执行。
+        migrateInitStoreToPlatform();
+
         // 平台超级管理员（手机号+密码，用于创建/管理门店）。仅在 dev 演示环境自动初始化。
         seedSuperAdmin();
 
         // 初始化演示门店和全员角色账号（手机号+密码，不再使用邮箱登录）
         String hash = passwordEncoder.encode("demo123456");
         seedDemoData(hash);
+
+        // 兜底：将任何未绑定项目的门店统一归属到默认项目「知颜」（幂等）
+        bindStoresToDefaultProject();
     }
 
     // ============================================================
     // 平台超级管理员（手机号+密码，无邮箱登录）
     // ============================================================
     private void seedSuperAdmin() {
-        // 超管在小程序端被当作"初始化门店（超管测试门店）的管理员/店长"：
-        // 作为该门店的员工，角色为 owner（老板/店长），看到该门店全店数据。
-        // 跨门店的"所有店面管理"后台为后续开发，当前不涉及。
-        String initStoreId = findInitStoreId();
-        String initRole = "owner";
+        // 平台超级管理员在后端以专属角色 super_admin 标识，可跨门店管理
+        // （PC 管理后台的全局视野 + 门店切换、/api/super-admin/* 端点均依赖此角色）。
+        // 仍绑定一个 platform 占位门店作为默认登录上下文，避免无门店档案导致小程序端无法登录。
+        String platformStoreId = findPlatformStoreId();
+        String initRole = "super_admin";
 
         // 两个指定的平台超级管理员（手机号+密码）
         String[][] supers = {
@@ -208,14 +220,14 @@ public class DataInitializer implements CommandLineRunner {
                     "SELECT COUNT(*) FROM employees WHERE user_id = ?", Integer.class, userId);
                 if (empCount != null && empCount == 0) {
                     jdbc.update("INSERT INTO employees (id, store_id, user_id, name, role, status, data_scope, created_at, updated_at) VALUES (?, ?, ?, '超级管理员', ?, 'active', 'store', NOW(), NOW())",
-                        uuid(), initStoreId, userId, initRole);
-                    log.info("平台超级管理员已存在但缺员工档案，已补建(门店员工,绑定初始化门店): phone={}, role={}", phone, initRole);
+                        uuid(), platformStoreId, userId, initRole);
+                    log.info("平台超级管理员已存在但缺员工档案，已补建(门店员工,绑定platform占位门店): phone={}, role={}", phone, initRole);
                 } else {
-                    // 已存在员工档案：绑定到初始化门店，并统一为门店管理角色（owner/店长）
+                    // 已存在员工档案：绑定到 platform 占位门店，并统一为超级管理员角色
                     jdbc.update("UPDATE employees SET store_id = ?, role = ?, updated_at = NOW() WHERE user_id = ?",
-                        initStoreId, initRole, userId);
-                    log.info("平台超级管理员已存在，员工档案已绑定到初始化门店并设为门店管理角色: phone={}, store={}, role={}",
-                        phone, initStoreId, initRole);
+                        platformStoreId, initRole, userId);
+                    log.info("平台超级管理员已存在，员工档案已绑定到platform占位门店并设为超级管理员角色: phone={}, store={}, role={}",
+                        phone, platformStoreId, initRole);
                 }
                 continue;
             }
@@ -223,26 +235,53 @@ public class DataInitializer implements CommandLineRunner {
             jdbc.update("INSERT INTO users (id, email, phone, name, password_hash, created_at) VALUES (?, NULL, ?, '超级管理员', ?, NOW())",
                 userId, phone, passwordEncoder.encode(rawPwd));
             jdbc.update("INSERT INTO employees (id, store_id, user_id, name, role, status, data_scope, created_at, updated_at) VALUES (?, ?, ?, '超级管理员', ?, 'active', 'store', NOW(), NOW())",
-                uuid(), initStoreId, userId, initRole);
-            log.info("平台超级管理员已初始化(门店员工,绑定初始化门店): phone={}, 密码={}, role={}", phone, rawPwd, initRole);
+                uuid(), platformStoreId, userId, initRole);
+            log.info("平台超级管理员已初始化(门店员工,绑定platform占位门店): phone={}, 密码={}, role={}", phone, rawPwd, initRole);
         }
     }
 
     /**
-     * 查找"初始化门店"（超管专属）：一个与尚美演示门店、platform 占位门店都隔离的独立门店，
-     * 不存在则创建。超管在小程序端作为该门店的管理员/店长，数据范围严格限定在本门店。
+     * 查找"platform 占位门店"（超级管理员专属）：超管以专属角色 super_admin 跨门店管理，
+     * 登录时仍需一个默认门店上下文（避免无门店档案导致小程序端无法登录），该占位门店不挂载
+     * 真实经营数据。历史上有个同性质的 init 占位门店，已由 migrateInitStoreToPlatform() 迁移。
      */
-    private String findInitStoreId() {
+    private String findPlatformStoreId() {
         try {
             String id = jdbc.queryForObject(
-                "SELECT id FROM stores WHERE id = 'init'", String.class);
+                "SELECT id FROM stores WHERE id = 'platform'", String.class);
             if (id != null && !id.isBlank()) return id;
         } catch (Exception ignored) {
             // 门店表无此门店，走创建
         }
-        jdbc.update("INSERT INTO stores (id, name, owner_id, created_at, updated_at) VALUES ('init', '超管测试门店', NULL, NOW(), NOW())");
-        log.info("创建初始化门店(供超管绑定): id=init, name=超管测试门店");
-        return "init";
+        jdbc.update("INSERT INTO stores (id, name, owner_id, project_id, created_at, updated_at) VALUES ('platform', '平台管理', NULL, 'zhiyan', NOW(), NOW())");
+        log.info("创建 platform 占位门店(供超管绑定): id=platform, name=平台管理");
+        return "platform";
+    }
+
+    /**
+     * 历史兼容迁移：把旧的 init 占位门店整体迁到 platform 占位门店。
+     * - 超管员工档案(store_id='init')改绑到 platform；
+     * - init 门店里残留的演示数据副本(客户/会谈)是尚美演示店的重复数据，清掉避免污染 platform；
+     * - 删除已清空的 init 门店。
+     * 幂等：init 不存在时直接跳过。无外键约束，删除安全。
+     */
+    private void migrateInitStoreToPlatform() {
+        Integer hasInit = jdbc.queryForObject(
+            "SELECT COUNT(*) FROM stores WHERE id = 'init'", Integer.class);
+        if (hasInit == null || hasInit == 0) {
+            log.info("migrateInitStoreToPlatform: 无 init 门店，跳过");
+            return;
+        }
+        // 1) 超管员工档案改绑 platform
+        int moved = jdbc.update("UPDATE employees SET store_id = 'platform', updated_at = NOW() WHERE store_id = 'init'");
+        log.info("migrateInitStoreToPlatform: 员工档案改绑 platform 数量={}", moved);
+        // 2) 清理 init 门店里的冗余演示数据副本（和尚美演示店完全重复，无外键，直接删）
+        int delCustomers = jdbc.update("DELETE FROM customers WHERE store_id = 'init'");
+        int delMeetings = jdbc.update("DELETE FROM meetings WHERE store_id = 'init'");
+        log.info("migrateInitStoreToPlatform: 清理 init 冗余客户={}, 会谈={}", delCustomers, delMeetings);
+        // 3) 删除已清空的 init 门店
+        jdbc.update("DELETE FROM stores WHERE id = 'init'");
+        log.info("migrateInitStoreToPlatform: 已删除 init 门店");
     }
 
     // ============================================================
@@ -378,7 +417,7 @@ public class DataInitializer implements CommandLineRunner {
             // 门店表为空，创建演示门店
         }
         String id = uuid();
-        jdbc.update("INSERT INTO stores (id, name, owner_id, created_at, updated_at) VALUES (?, ?, NULL, NOW(), NOW())",
+        jdbc.update("INSERT INTO stores (id, name, owner_id, project_id, created_at, updated_at) VALUES (?, ?, NULL, 'zhiyan', NOW(), NOW())",
             id, "尚美美容旗舰店");
         log.info("创建演示门店: id={}, name=尚美美容旗舰店", id);
         return id;
@@ -433,6 +472,34 @@ public class DataInitializer implements CommandLineRunner {
         } catch (Exception e) {
             log.debug("添加列 {}.{} 失败: {}", table, column, e.getMessage());
         }
+    }
+
+    /** 项目表（规范多项目）：store-ai 自建 projects，stores.project_id 关联它 */
+    private void createProjectsTableIfMissing() {
+        jdbc.execute("CREATE TABLE IF NOT EXISTS projects (" +
+                "id VARCHAR(64) PRIMARY KEY, " +
+                "code VARCHAR(64) NOT NULL UNIQUE, " +
+                "name VARCHAR(128) NOT NULL, " +
+                "description VARCHAR(255), " +
+                "status VARCHAR(20) DEFAULT 'active', " +
+                "created_at DATETIME, " +
+                "updated_at DATETIME)");
+    }
+
+    /** 默认项目「知颜」（美业门店 AI 经营助手）。幂等，已存在则跳过 */
+    private void seedDefaultProject() {
+        Integer cnt = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM projects WHERE code = 'zhiyan'", Integer.class);
+        if (cnt != null && cnt > 0) return;
+        jdbc.update("INSERT INTO projects (id, code, name, description, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'active', NOW(), NOW())",
+                "zhiyan", "zhiyan", "知颜", "美业门店 AI 经营助手");
+        log.info("创建默认项目(知颜): code=zhiyan, name=知颜");
+    }
+
+    /** 兜底：将任何未绑定项目的门店统一归属到默认项目「知颜」。幂等 */
+    private void bindStoresToDefaultProject() {
+        int n = jdbc.update("UPDATE stores SET project_id = 'zhiyan' WHERE project_id IS NULL OR project_id = ''");
+        if (n > 0) log.info("已将 {} 个门店归属到默认项目(知颜)", n);
     }
 
     private void safeExec(String sql) {

@@ -13,6 +13,7 @@ import com.storeai.auth.entity.Employee;
 import com.storeai.auth.entity.Store;
 import com.storeai.auth.repository.EmployeeRepository;
 import com.storeai.auth.repository.StoreRepository;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.storeai.common.dto.ApiResponse;
 import com.storeai.common.util.CurrentUser;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -23,6 +24,8 @@ import jakarta.servlet.http.HttpServletRequest;
 
 import java.util.Map;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 
 @Tag(name = "认证")
 @RestController
@@ -104,6 +107,40 @@ public class AuthController {
                 "name", employee != null && employee.getName() != null ? employee.getName() : "",
                 "storeName", store != null && store.getName() != null ? store.getName() : ""
         ));
+    }
+
+    /**
+     * 当前登录用户可访问的门店列表。
+     * 超管返回全部门店；普通用户返回其跨门店在职员工档案对应的门店（支持店长管多门店）。
+     * 前端门店切换器据此展示可选项。
+     */
+    @GetMapping("/my-stores")
+    public ApiResponse<List<Map<String, String>>> myStores() {
+        if (currentUser.isSuperAdmin()) {
+            var all = storeRepository.selectList(null);
+            return ApiResponse.ok((all == null ? List.<Store>of() : all).stream()
+                .map(s -> Map.of(
+                    "storeId", s.getId() != null ? s.getId() : "",
+                    "storeName", s.getName() != null ? s.getName() : "",
+                    "projectId", s.getProjectId() != null ? s.getProjectId() : "",
+                    "role", "super_admin"))
+                .toList());
+        }
+        List<Employee> emps = employeeRepository.selectList(
+            new LambdaQueryWrapper<Employee>()
+                .eq(Employee::getUserId, currentUser.userId())
+                .eq(Employee::getStatus, "active"));
+        LinkedHashMap<String, Map<String, String>> byStore = new LinkedHashMap<>();
+        for (Employee e : emps) {
+            if (e.getStoreId() == null || byStore.containsKey(e.getStoreId())) continue;
+            Store store = storeRepository.selectById(e.getStoreId());
+            byStore.put(e.getStoreId(), Map.of(
+                "storeId", e.getStoreId(),
+                "storeName", store != null && store.getName() != null ? store.getName() : "",
+                "projectId", store != null && store.getProjectId() != null ? store.getProjectId() : "",
+                "role", e.getRole() != null ? e.getRole() : ""));
+        }
+        return ApiResponse.ok(new ArrayList<>(byStore.values()));
     }
 
     private static String roleLabel(String role) {

@@ -8,6 +8,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.ColumnMapRowMapper;
 import org.springframework.jdbc.core.SqlParameterValue;
 import org.springframework.stereotype.Service;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.sql.Timestamp;
 import java.sql.Types;
@@ -55,7 +57,7 @@ public class ProxyService {
         // 自动注入 store_id
         if (hasStoreId && cur != null) {
             sql.append(" AND store_id = ?");
-            params.add(cur.storeId());
+            params.add(effectiveStoreId(cur));
         }
         if ("users".equals(tbl) && cur != null) {
             sql.append(" AND id = ?");
@@ -122,7 +124,7 @@ public class ProxyService {
 
         if (hasStoreId && cur != null) {
             sql.append(" AND store_id = ?");
-            params.add(cur.storeId());
+            params.add(effectiveStoreId(cur));
         }
 
         var rows = jdbc.query(sql.toString(), params.toArray(), new ColumnMapRowMapper());
@@ -140,7 +142,7 @@ public class ProxyService {
 
         // 调用方不能伪造所属门店。
         if (hasStoreId && cur != null) {
-            safeData.put("store_id", cur.storeId());
+            safeData.put("store_id", effectiveStoreId(cur));
         }
 
         // 生成 id（若无）
@@ -191,7 +193,7 @@ public class ProxyService {
 
         if (hasStoreId && cur != null) {
             sql.append(" AND store_id = ?");
-            params.add(cur.storeId());
+            params.add(effectiveStoreId(cur));
         }
 
         int n = jdbc.update(sql.toString(), params.toArray());
@@ -212,11 +214,57 @@ public class ProxyService {
 
         if (hasStoreId && cur != null) {
             sql.append(" AND store_id = ?");
-            params.add(cur.storeId());
+            params.add(effectiveStoreId(cur));
         }
 
         int n = jdbc.update(sql.toString(), params.toArray());
         if (n == 0) throw BizException.notFound("记录");
+    }
+
+    // ================================================================
+    // 门店切换（X-Store-Id）
+    // ================================================================
+    private static final String STORE_SWITCH_HEADER = "X-Store-Id";
+
+    /**
+     * 解析本次请求实际生效的门店 ID。
+     * 默认使用登录门店；若请求头带 X-Store-Id 且当前用户有权访问该门店
+     * （超管任意，普通用户须在该门店有在职 Employee 记录），则使用目标门店。
+     */
+    private String effectiveStoreId(CurrentUser cur) {
+        if (cur == null) return null;
+        String target = currentRequestStoreId();
+        if (target == null || target.isBlank() || target.equals(cur.storeId())) {
+            return cur.storeId();
+        }
+        if (cur.isSuperAdmin()) {
+            return target;
+        }
+        if (canAccessStore(cur.userId(), target)) {
+            return target;
+        }
+        return cur.storeId();
+    }
+
+    private String currentRequestStoreId() {
+        var attrs = RequestContextHolder.getRequestAttributes();
+        if (attrs instanceof ServletRequestAttributes sra) {
+            String v = sra.getRequest().getHeader(STORE_SWITCH_HEADER);
+            return v == null ? null : v.trim();
+        }
+        return null;
+    }
+
+    private boolean canAccessStore(String userId, String storeId) {
+        if (userId == null || storeId == null) return false;
+        try {
+            Integer n = jdbc.queryForObject(
+                "SELECT 1 FROM employees WHERE user_id = ? AND store_id = ? AND status = 'active' LIMIT 1",
+                Integer.class, userId, storeId);
+            return n != null;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     // ================================================================

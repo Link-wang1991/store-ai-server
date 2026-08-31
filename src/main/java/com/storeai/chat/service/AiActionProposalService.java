@@ -45,7 +45,7 @@ public class AiActionProposalService {
         OffsetDateTime defaultDueAt = OffsetDateTime.now().plusDays(1).withHour(18).withMinute(0).withSecond(0).withNano(0);
         String now = OffsetDateTime.now().toString();
         jdbc.update("""
-            INSERT INTO ai_action_proposals
+            INSERT INTO action_proposals
             (id, store_id, employee_id, message_id, customer_id, action_type, title, content, assigned_to, priority, due_at, status, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, 'followup', ?, ?, ?, 'normal', ?, 'pending', ?, ?)
             """, id, cur.storeId(), cur.employeeId(), messageId, customerId, title, nextAction,
@@ -73,7 +73,7 @@ public class AiActionProposalService {
         }
         OffsetDateTime parsedDueAt = parseDueAt(dueAt);
         jdbc.update("""
-            UPDATE ai_action_proposals
+            UPDATE action_proposals
             SET title = ?, content = ?, assigned_to = ?, priority = ?, due_at = ?, updated_at = NOW()
             WHERE id = ? AND store_id = ? AND employee_id = ? AND status = 'pending'
             """, normalizedTitle, normalizedContent, normalizedAssignee, normalizedPriority,
@@ -100,7 +100,7 @@ public class AiActionProposalService {
             """, taskId, cur.storeId(), proposal.customerId(), proposal.title(), proposal.content(),
             proposal.priority(), proposal.assignedTo(), cur.employeeId(), proposal.dueAt(), proposal.id(), now, now);
         jdbc.update("""
-            UPDATE ai_action_proposals
+            UPDATE action_proposals
             SET status = 'applied', applied_task_id = ?, updated_at = NOW()
             WHERE id = ? AND store_id = ? AND employee_id = ? AND status = 'pending'
             """, taskId, proposalId, cur.storeId(), cur.employeeId());
@@ -113,7 +113,7 @@ public class AiActionProposalService {
         ActionProposal proposal = requireOwnProposal(proposalId);
         if ("pending".equals(proposal.status())) {
             jdbc.update("""
-                UPDATE ai_action_proposals SET status = 'rejected', updated_at = NOW()
+                UPDATE action_proposals SET status = 'rejected', updated_at = NOW()
                 WHERE id = ? AND store_id = ? AND employee_id = ?
                 """, proposalId, cur.storeId(), cur.employeeId());
         }
@@ -145,7 +145,7 @@ public class AiActionProposalService {
             SELECT ap.id, ap.store_id, ap.employee_id, ap.message_id, ap.customer_id, ap.action_type, ap.title, ap.content,
                    ap.assigned_to, ap.priority, ap.due_at, ap.status, ap.applied_task_id,
                    t.status AS applied_task_status, t.feedback AS applied_task_feedback, t.updated_at AS applied_task_updated_at
-            FROM ai_action_proposals ap
+            FROM action_proposals ap
             LEFT JOIN tasks t ON t.id = ap.applied_task_id AND t.store_id = ap.store_id
             WHERE ap.message_id = ? AND ap.store_id = ? AND ap.employee_id = ? LIMIT 1
             """, messageId, cur.storeId(), cur.employeeId());
@@ -157,7 +157,7 @@ public class AiActionProposalService {
             SELECT ap.id, ap.store_id, ap.employee_id, ap.message_id, ap.customer_id, ap.action_type, ap.title, ap.content,
                    ap.assigned_to, ap.priority, ap.due_at, ap.status, ap.applied_task_id,
                    t.status AS applied_task_status, t.feedback AS applied_task_feedback, t.updated_at AS applied_task_updated_at
-            FROM ai_action_proposals ap
+            FROM action_proposals ap
             LEFT JOIN tasks t ON t.id = ap.applied_task_id AND t.store_id = ap.store_id
             WHERE ap.id = ? LIMIT 1
             """, id);

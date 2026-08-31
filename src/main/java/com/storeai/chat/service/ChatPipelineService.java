@@ -340,7 +340,7 @@ public class ChatPipelineService {
         String note = comment == null ? "" : comment.trim();
         if (note.length() > 1_000) note = note.substring(0, 1_000);
         jdbc.update("""
-            INSERT INTO ai_feedback (id, store_id, employee_id, message_id, customer_id, feedback_type, is_helpful, comment, created_at, updated_at)
+            INSERT INTO answer_feedback (id, store_id, employee_id, message_id, customer_id, feedback_type, is_helpful, comment, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
             ON DUPLICATE KEY UPDATE feedback_type = VALUES(feedback_type), is_helpful = VALUES(is_helpful),
                 comment = VALUES(comment), customer_id = VALUES(customer_id), updated_at = NOW()

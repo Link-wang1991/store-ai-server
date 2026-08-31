@@ -190,7 +190,7 @@ public class TaskTraceService {
                 SELECT ap.id AS proposal_id, ap.message_id, cm.session_id, cm.content AS question,
                        cm.retrieved_chunks, cm.methodology_sources,
                        created_task.status AS applied_task_status, created_task.feedback AS applied_task_feedback
-                FROM ai_action_proposals ap
+                FROM action_proposals ap
                 JOIN chat_messages cm ON cm.id = ap.message_id AND cm.store_id = ap.store_id
                 LEFT JOIN tasks created_task ON created_task.id = ap.applied_task_id AND created_task.store_id = ap.store_id
                 WHERE ap.id = ? AND ap.store_id = ? LIMIT 1

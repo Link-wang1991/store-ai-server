@@ -14,6 +14,7 @@ public class Store {
     private String id;
     private String name;
     private String ownerId;
+    private String projectId;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
 }
