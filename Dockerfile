@@ -16,16 +16,17 @@ xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.
   </mirrors>\n\
 </settings>\n' > /root/.m2/settings.xml
 
-# 先只复制 pom 以下载依赖，利用 Docker 层缓存：仅改代码时可跳过依赖下载
-COPY pom.xml ./
-# 注意：dependency:go-offline 不能覆盖全部插件依赖，失败不影响后续 package（会联网补齐）
-RUN mvn -B -q dependency:go-offline || true
+COPY . ./
 
-COPY src ./src
-# 用 maven.test.skip 而不是 skipTests：镜像构建环境是干净的 Maven，
-# 仅 skipTests 仍会编译测试代码，测试代码一旦有编译问题整个镜像就构建失败。
-RUN mvn -B clean package -Dmaven.test.skip=true -q \
-    && cp $(ls target/*.jar | grep -v original | head -1) /build/app.jar
+# 如果宿主机已有 target/*.jar 则秒级复用，否则从源码构建
+RUN if ls target/*.jar 1>/dev/null 2>&1; then \
+      echo "✓ 复用已打包的 jar: $(ls target/*.jar | grep -v original | head -1)" && \
+      cp $(ls target/*.jar | grep -v original | head -1) /build/app.jar; \
+    else \
+      echo "执行 maven 编译打包..." && \
+      mvn -B clean package -Dmaven.test.skip=true -q && \
+      cp $(ls target/*.jar | grep -v original | head -1) /build/app.jar; \
+    fi
 
 # ---------- 运行阶段（对齐 slimming-life 容器运行方式）----------
 FROM eclipse-temurin:17-jre

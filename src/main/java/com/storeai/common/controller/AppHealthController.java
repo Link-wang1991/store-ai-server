@@ -26,7 +26,7 @@ public class AppHealthController {
     @Value("${ai.qwen.api-key:}")
     private String qwenApiKey;
 
-    @GetMapping("/api/health")
+    @GetMapping({"/api/health", "/health", "/api/ping", "/ping"})
     public ApiResponse<Map<String, Object>> health() {
         Integer database = jdbc.queryForObject("SELECT 1", Integer.class);
         if (database == null || database != 1) {
@@ -34,6 +34,7 @@ public class AppHealthController {
         }
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("status", "ok");
+        result.put("service", "store-ai-server");
         result.put("database", "ok");
         // 只公布就绪状态，不暴露密钥、模型、连接地址等配置细节。
         result.put("audio_transcription", qwenApiKey == null || qwenApiKey.isBlank() ? "not_configured" : "configured");
