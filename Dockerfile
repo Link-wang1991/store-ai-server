@@ -2,7 +2,7 @@
 FROM maven:3.9-eclipse-temurin-17 AS build
 WORKDIR /build
 
-# 配置阿里云 Maven 镜像源（提升国内阿里云服务器构建下载速度）
+# 配置阿里云 Maven 镜像源（提升国内阿里云服务器构建依赖下载速度）
 RUN mkdir -p /root/.m2 && printf '<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"\n\
 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"\n\
 xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">\n\
@@ -27,7 +27,7 @@ COPY src ./src
 RUN mvn -B clean package -Dmaven.test.skip=true -q \
     && cp $(ls target/*.jar | grep -v original | head -1) /build/app.jar
 
-# ---------- 运行阶段 ----------
+# ---------- 运行阶段（对齐 slimming-life 容器运行方式）----------
 FROM eclipse-temurin:17-jre
 
 # 时区必须与数据库 serverTimezone 一致，避免时间字段错乱
@@ -37,15 +37,11 @@ ENV JAVA_OPTS="-XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -Djava.security.egd=file:/
 
 WORKDIR /app
 
-# 确保 uid/gid 1000 用户存在（部分 Ubuntu 基础镜像自带 ubuntu:1000 用户，无需重复创建）
-RUN if ! getent group 1000 >/dev/null 2>&1; then groupadd -g 1000 app; fi \
-    && if ! getent passwd 1000 >/dev/null 2>&1; then useradd -u 1000 -g 1000 -r -m app; fi \
-    && mkdir -p /app/uploads/meeting-audio /app/uploads/knowledge \
-    && chown -R 1000:1000 /app
+# 预建持久化挂载目录
+RUN mkdir -p /app/uploads/meeting-audio /app/uploads/knowledge
 
 COPY --from=build /build/app.jar /app/app.jar
 
-USER 1000:1000
 EXPOSE 8080
 
 # 项目未引入 actuator，K8s 存活/就绪探针使用 TCP 端口探测（见 k8s/*.yaml）
