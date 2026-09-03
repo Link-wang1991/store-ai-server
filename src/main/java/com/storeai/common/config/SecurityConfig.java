@@ -49,6 +49,7 @@ public class SecurityConfig {
                     "/health",
                     "/api/ping",
                     "/ping",
+                    "/app-api/**",
                     "/api-docs/**",
                     "/swagger-ui/**",
                     "/swagger-ui.html"

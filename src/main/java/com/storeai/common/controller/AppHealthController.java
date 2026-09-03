@@ -26,7 +26,7 @@ public class AppHealthController {
     @Value("${ai.qwen.api-key:}")
     private String qwenApiKey;
 
-    @GetMapping({"/api/health", "/health", "/api/ping", "/ping"})
+    @GetMapping({"/api/health", "/health", "/api/ping", "/ping", "/app-api/api/health", "/app-api/health"})
     public ApiResponse<Map<String, Object>> health() {
         Integer database = jdbc.queryForObject("SELECT 1", Integer.class);
         if (database == null || database != 1) {
