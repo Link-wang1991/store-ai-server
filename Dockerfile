@@ -2,6 +2,20 @@
 FROM maven:3.9-eclipse-temurin-17 AS build
 WORKDIR /build
 
+# 配置阿里云 Maven 镜像源（提升国内阿里云服务器构建下载速度）
+RUN mkdir -p /root/.m2 && printf '<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"\n\
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"\n\
+xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">\n\
+  <mirrors>\n\
+    <mirror>\n\
+      <id>aliyunmaven</id>\n\
+      <mirrorOf>central</mirrorOf>\n\
+      <name>aliyun maven</name>\n\
+      <url>https://maven.aliyun.com/repository/public</url>\n\
+    </mirror>\n\
+  </mirrors>\n\
+</settings>\n' > /root/.m2/settings.xml
+
 # 先只复制 pom 以下载依赖，利用 Docker 层缓存：仅改代码时可跳过依赖下载
 COPY pom.xml ./
 # 注意：dependency:go-offline 不能覆盖全部插件依赖，失败不影响后续 package（会联网补齐）
@@ -23,15 +37,15 @@ ENV JAVA_OPTS="-XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -Djava.security.egd=file:/
 
 WORKDIR /app
 
-# 以固定 uid/gid 1000 的非 root 用户运行（K8s 侧用 securityContext.fsGroup=1000 对齐，
-# 否则 local-path 持久卷默认属主为 root，会导致上传文件写入失败）；预建上传目录作为 PVC 挂载点
-RUN groupadd -g 1000 app && useradd -u 1000 -g 1000 -r -m app \
+# 确保 uid/gid 1000 用户存在（部分 Ubuntu 基础镜像自带 ubuntu:1000 用户，无需重复创建）
+RUN if ! getent group 1000 >/dev/null 2>&1; then groupadd -g 1000 app; fi \
+    && if ! getent passwd 1000 >/dev/null 2>&1; then useradd -u 1000 -g 1000 -r -m app; fi \
     && mkdir -p /app/uploads/meeting-audio /app/uploads/knowledge \
-    && chown -R app:app /app
+    && chown -R 1000:1000 /app
 
 COPY --from=build /build/app.jar /app/app.jar
 
-USER app
+USER 1000:1000
 EXPOSE 8080
 
 # 项目未引入 actuator，K8s 存活/就绪探针使用 TCP 端口探测（见 k8s/*.yaml）
