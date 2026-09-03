@@ -1,0 +1,26 @@
+# 构建上下文瘦身：以下目录/文件不会发送给 Docker daemon，可显著加快构建并避免泄密
+
+# 构建产物：镜像内会重新执行 mvn package
+target/
+
+# 版本控制与 IDE
+.git/
+.gitignore
+.idea/
+.vscode/
+*.iml
+
+# 日志
+*.log
+
+# ⚠️ 本地 .env 含真实数据库密码与密钥，绝不能进入镜像层
+.env
+.env.*
+!.env.example
+
+# 本地上传的音频与知识文件（容器内改由 PVC 挂载到 /app/uploads）
+uploads/
+
+# 容器构建文件自身
+Dockerfile
+.dockerignore

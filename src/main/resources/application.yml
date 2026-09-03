@@ -4,13 +4,14 @@ server:
 spring:
   application:
     name: store-ai-server
-  # 生产环境必须显式设置 SPRING_PROFILES_ACTIVE；演示数据仅在 dev profile 下初始化。
+  # 生产环境必须显式设置 SPRING_PROFILES_ACTIVE=prod；演示数据仅在 dev profile 下初始化。
+  # 容器/K8s 部署时由环境变量注入，见 deploy/.env.example。
   profiles:
-    active: dev
+    active: ${SPRING_PROFILES_ACTIVE:dev}
   datasource:
-    url: jdbc:mysql://rm-bp16c2h5tv22r0ckhko.mysql.rds.aliyuncs.com:3306/store-ai?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
-    username: mianjen
-    password: "yqc900718!"
+    url: ${DB_URL:jdbc:mysql://rm-bp16c2h5tv22r0ckhko.mysql.rds.aliyuncs.com:3306/store-ai?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false}
+    username: ${DB_USERNAME:mianjen}
+    password: ${DB_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       maximum-pool-size: ${DB_POOL_MAX:20}
@@ -38,9 +39,10 @@ mybatis-plus:
     map-underscore-to-camel-case: true
     log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
 
+# ⚠️ JWT 密钥属敏感凭据，禁止写死。必须由环境变量 JWT_SECRET 注入。
 jwt:
-  secret: store-ai-jwt-secret-key-must-be-at-least-256-bits-long
-  expiration: 604800000
+  secret: ${JWT_SECRET:}
+  expiration: ${JWT_EXPIRATION:604800000}
 
 # 免密角色体验默认关闭。仅本机 local profile 可显式打开，且永不应在公网部署中开启。
 app:
@@ -63,6 +65,7 @@ app:
       template-code-login: ${ALIYUN_SMS_TEMPLATE_LOGIN:}
       template-code-reset-password: ${ALIYUN_SMS_TEMPLATE_RESET:}
 
+# 文件存储。provider=local 时使用下面的本地目录（容器内请指向 PVC 挂载点 /app/uploads）。
 storage:
   provider: ${STORAGE_PROVIDER:local}
   local-path: ${STORAGE_LOCAL_PATH:./uploads/meeting-audio}
@@ -75,17 +78,18 @@ minio:
   bucket-knowledge: ${MINIO_BUCKET_KNOWLEDGE:store-knowledge}
   bucket-meeting: ${MINIO_BUCKET_MEETING:store-meeting}
 
+# ⚠️ 大模型 API Key 属敏感凭据，禁止写死。必须由环境变量注入。
 ai:
-  provider: deepseek
+  provider: ${AI_PROVIDER:deepseek}
   deepseek:
-    api-key: sk-9896a9984c5b4b939868c0adc7d13dc6
-    base-url: https://api.deepseek.com
-    model: deepseek-chat
+    api-key: ${DEEPSEEK_API_KEY:}
+    base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
+    model: ${DEEPSEEK_MODEL:deepseek-chat}
   qwen:
-    api-key: sk-1441823d0d384ae2a0fb0db0ea4a65d2
-    text-model: qwen-plus
+    api-key: ${QWEN_API_KEY:}
+    text-model: ${QWEN_TEXT_MODEL:qwen-plus}
     vision-model: ${QWEN_VISION_MODEL:qwen-vl-plus}
-    asr-api-url: https://dashscope.aliyuncs.com/api/v1/services/audio/asr/asynctask
+    asr-api-url: ${QWEN_ASR_API_URL:https://dashscope.aliyuncs.com/api/v1/services/audio/asr/asynctask}
 
 # 会谈自动重试次数。临时设为 1 以关闭自动重试（失败一次即进入失败态，不再自动重试，
 # 避免语音识别/分析反复调用外部服务消耗 token/费用）；恢复自动重试时改回 3/4 并重启。
@@ -101,7 +105,8 @@ springdoc:
   swagger-ui:
     path: /swagger-ui.html
 
-# 微信小程序登录（一键登录 + 绑定手机号）。appid/secret 为真实小程序凭证，注意保密、勿外泄。
+# 微信小程序登录（一键登录 + 绑定手机号）。
+# appid 为公开信息可保留默认值；secret 属敏感凭据，必须由环境变量 WX_SECRET 注入。
 wx:
   appid: ${WX_APPID:wx6ade085c48e2a736}
-  secret: ${WX_SECRET:a7e0ebf41a9ff49a406c0f0650fb4576}
+  secret: ${WX_SECRET:}
